@@ -1,0 +1,130 @@
+/* Basic styling for the Neuropharm Simulation Lab front‑end */
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+  background-color: #f7f7fb;
+  color: #1f2937;
+  height: 100%;
+}
+
+header {
+  background: linear-gradient(90deg, #2dd4bf, #3b82f6);
+  color: white;
+  padding: 1rem 2rem;
+  text-align: center;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+header .subtitle {
+  margin-top: 0.25rem;
+  font-size: 1rem;
+}
+
+main {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 1rem;
+  gap: 1rem;
+}
+
+section {
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
+  flex: 1 1 300px;
+  min-width: 280px;
+}
+
+section h2 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+  color: #3b82f6;
+}
+
+.receptor {
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 0.75rem;
+}
+
+.receptor h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.1rem;
+  color: #6366f1;
+}
+
+.receptor label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.phenotype-toggles label {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.9rem;
+}
+
+button#runButton {
+  margin-top: 0.5rem;
+  padding: 0.5rem 1rem;
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.2s ease;
+}
+
+button#runButton:hover {
+  background-color: #2563eb;
+}
+
+#chart {
+  width: 100%;
+  height: 300px;
+}
+
+.citations {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+}
+
+.citations h3 {
+  margin-bottom: 0.4rem;
+  color: #2563eb;
+}
+
+.citations ul {
+  list-style: none;
+  padding-left: 1rem;
+}
+
+.citations li {
+  margin-bottom: 0.3rem;
+}
+
+.three-container {
+  width: 100%;
+  height: 300px;
+  background-color: #f0f7ff;
+  border: 1px solid #e5e7eb;
+  position: relative;
+}
+
+footer {
+  text-align: center;
+  padding: 1rem;
+  background-color: #f1f5f9;
+  color: #6b7280;
+  font-size: 0.8rem;
+  border-top: 1px solid #e5e7eb;
+}

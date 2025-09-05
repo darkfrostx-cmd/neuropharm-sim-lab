@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Neuropharm Simulation Lab</title>
+  <!-- Plotly for charts -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+  <!-- Three.js for 3D visualisation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Orbit controls for Three.js -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.142.0/examples/js/controls/OrbitControls.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Neuropharm Simulation Lab</h1>
+    <p class="subtitle">Explore serotonergic receptor interactions and motivational states</p>
+  </header>
+
+  <main>
+    <section id="control-panel">
+      <h2>Receptors</h2>
+      <!-- Receptor controls: Each receptor has a slider for occupancy (0–1) and a select for mechanism -->
+      <div class="receptor" data-receptor="5HT2C">
+        <h3>5-HT2C</h3>
+        <label>
+          Occupancy: <input type="range" min="0" max="1" step="0.01" value="0.5" class="occ-slider" />
+        </label>
+        <label>
+          Mechanism:
+          <select class="mech-select">
+            <option value="agonist">agonist</option>
+            <option value="partial">partial</option>
+            <option value="antagonist" selected>antagonist</option>
+            <option value="inverse">inverse</option>
+          </select>
+        </label>
+      </div>
+      <div class="receptor" data-receptor="5HT1B">
+        <h3>5-HT1B</h3>
+        <label>
+          Occupancy: <input type="range" min="0" max="1" step="0.01" value="0.5" class="occ-slider" />
+        </label>
+        <label>
+          Mechanism:
+          <select class="mech-select">
+            <option value="agonist" selected>agonist</option>
+            <option value="partial">partial</option>
+            <option value="antagonist">antagonist</option>
+            <option value="inverse">inverse</option>
+          </select>
+        </label>
+      </div>
+      <div class="receptor" data-receptor="5HT2A">
+        <h3>5-HT2A</h3>
+        <label>
+          Occupancy: <input type="range" min="0" max="1" step="0.01" value="0.5" class="occ-slider" />
+        </label>
+        <label>
+          Mechanism:
+          <select class="mech-select">
+            <option value="agonist">agonist</option>
+            <option value="partial">partial</option>
+            <option value="antagonist" selected>antagonist</option>
+            <option value="inverse">inverse</option>
+          </select>
+        </label>
+      </div>
+      <div class="receptor" data-receptor="5HT3">
+        <h3>5-HT3</h3>
+        <label>
+          Occupancy: <input type="range" min="0" max="1" step="0.01" value="0.5" class="occ-slider" />
+        </label>
+        <label>
+          Mechanism:
+          <select class="mech-select">
+            <option value="agonist">agonist</option>
+            <option value="partial">partial</option>
+            <option value="antagonist" selected>antagonist</option>
+            <option value="inverse">inverse</option>
+          </select>
+        </label>
+      </div>
+      <div class="receptor" data-receptor="5HT7">
+        <h3>5-HT7</h3>
+        <label>
+          Occupancy: <input type="range" min="0" max="1" step="0.01" value="0.5" class="occ-slider" />
+        </label>
+        <label>
+          Mechanism:
+          <select class="mech-select">
+            <option value="agonist">agonist</option>
+            <option value="partial">partial</option>
+            <option value="antagonist" selected>antagonist</option>
+            <option value="inverse">inverse</option>
+          </select>
+        </label>
+      </div>
+      <div class="receptor" data-receptor="5HT1A">
+        <h3>5-HT1A</h3>
+        <label>
+          Occupancy: <input type="range" min="0" max="1" step="0.01" value="0.5" class="occ-slider" />
+        </label>
+        <label>
+          Mechanism:
+          <select class="mech-select">
+            <option value="agonist">agonist</option>
+            <option value="partial" selected>partial</option>
+            <option value="antagonist">antagonist</option>
+            <option value="inverse">inverse</option>
+          </select>
+        </label>
+      </div>
+      <div class="receptor" data-receptor="MT2">
+        <h3>MT2 (Melatonin)</h3>
+        <label>
+          Occupancy: <input type="range" min="0" max="1" step="0.01" value="0.5" class="occ-slider" />
+        </label>
+        <label>
+          Mechanism:
+          <select class="mech-select">
+            <option value="agonist" selected>agonist</option>
+            <option value="partial">partial</option>
+            <option value="antagonist">antagonist</option>
+            <option value="inverse">inverse</option>
+          </select>
+        </label>
+      </div>
+
+      <h2>Phenotype & Settings</h2>
+      <div class="phenotype-toggles">
+        <label><input type="checkbox" id="adhdToggle" /> ADHD phenotype</label>
+        <label><input type="checkbox" id="acuteToggle" /> Acute 1A (buspirone)</label>
+        <label><input type="checkbox" id="gutToggle" /> Gut bias (enteric)</label>
+        <label>
+          PVT weight:
+          <input type="range" min="0" max="1" step="0.01" value="0.5" id="pvtWeight" />
+        </label>
+      </div>
+      <button id="runButton">Run Simulation</button>
+    </section>
+    
+    <section id="results-panel">
+      <h2>Simulation Results</h2>
+      <div id="chart" class="chart-container"></div>
+      <div id="citations" class="citations"></div>
+    </section>
+
+    <section id="network-panel">
+      <h2>Brain Network</h2>
+      <div id="threeContainer" class="three-container"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>© 2025 Neuropharm Simulation Lab. All rights reserved.</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
