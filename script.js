@@ -11,7 +11,7 @@
 // Base URL for the API. When running locally, the backend listens on
 // localhost:8000. In production, this may be replaced by a configured
 // environment variable or relative path.
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'https://neuropharm-sim-lab.onrender.com';
 
 // Once DOM is loaded, attach handlers and initialize the 3D scene
 document.addEventListener('DOMContentLoaded', () => {
