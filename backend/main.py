@@ -17,6 +17,8 @@ The API also exposes a root `/` endpoint for a basic health check.
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Dict, Any
+from fastapi.middleware.cors import CORSMiddleware
+
 
 import numpy as np
 import json
@@ -75,6 +77,16 @@ class SimulationOutput(BaseModel):
 
 app = FastAPI(title="Neuropharm Simulation API",
               description=("Simulate serotonergic, dopaminergic and other\n                           neurotransmitter systems under a variety of\n                           receptor manipulations.  See the README for\n                           details on the expected payload format."))
+
+# Configure CORS
+origins = ["https://darkfrostx-cmd.github.io"]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
