@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 
 import numpy as np
+import os
 import json
 
 from .engine.receptors import get_receptor_weights, get_mechanism_factor, RECEPTORS
@@ -79,7 +80,7 @@ app = FastAPI(title="Neuropharm Simulation API",
               description=("Simulate serotonergic, dopaminergic and other\n                           neurotransmitter systems under a variety of\n                           receptor manipulations.  See the README for\n                           details on the expected payload format."))
 
 # Configure CORS
-origins = ["https://darkfrostx-cmd.github.io"]
+origins = os.environ.get("CORS_ORIGINS", "https://darkfrostx-cmd.github.io").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -96,10 +97,14 @@ def read_root():
     Returns a basic status message so that clients can confirm the API is
     running.
     """
-    return {"status": "ok"}
+    return {"status": "ok", "version": "2025.09.05"}
 
 
-@app.post("/simulate", response_model=SimulationOutput)
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "version": "2025.09.05"}
+
 def simulate(inp: SimulationInput) -> SimulationOutput:
     """Run a single simulation with the provided input.
 
