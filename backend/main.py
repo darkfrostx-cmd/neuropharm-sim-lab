@@ -1,4 +1,4 @@
-e"""
+"""
 FastAPI backend for the neuropharm simulation lab.
 
 This service exposes a `/simulate` endpoint that accepts a JSON
@@ -15,14 +15,13 @@ The API also exposes a root `/` endpoint for a basic health check.
 """
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Any
 from fastapi.middleware.cors import CORSMiddleware
-
+from pydantic import BaseModel
+from typing import Dict, Any, Optional
 
 import numpy as np
-import os
 import json
+import os
 
 from .engine.receptors import get_receptor_weights, get_mechanism_factor, RECEPTORS
 
@@ -58,28 +57,44 @@ class SimulationInput(BaseModel):
     pvt_weight: float = 0.5
 
 
+class Citation(BaseModel):
+    """Bibliographic reference supporting a mechanism or receptor effect."""
+
+    title: str
+    pmid: Optional[str] = None
+    doi: Optional[str] = None
+
+
 class SimulationOutput(BaseModel):
     """Return format from the simulation engine.
 
     `scores` contains high‑level behavioural metrics normalised to 0–100.
     `details` includes intermediate values (e.g. computed dopamine phasic
     drive) that may be useful for debugging or future UI visualisations.
-    `citations` returns a list of PubMed IDs and/or DOIs supporting the
+    `citations` returns lists of :class:`Citation` entries supporting the
     mechanisms involved in generating the result.
     """
     scores: Dict[str, float]
     details: Dict[str, Any]
-    citations: Dict[str, list[str]]
+    citations: Dict[str, list[Citation]]
 
 
 # -----------------------------------------------------------------------------
 # Application
 # -----------------------------------------------------------------------------
 
-app = FastAPI(title="Neuropharm Simulation API",
-              description=("Simulate serotonergic, dopaminergic and other\n                           neurotransmitter systems under a variety of\n                           receptor manipulations.  See the README for\n                           details on the expected payload format."))
+app = FastAPI(
+    title="Neuropharm Simulation API",
+    description=(
+        "Simulate serotonergic, dopaminergic and other neurotransmitter "
+        "systems under a variety of receptor manipulations. See the README "
+        "for details on the expected payload format."
+    ),
+)
 
-# Configure CORS
+API_VERSION = "2025.09.05"
+
+# Configure CORS based on environment variable (comma-separated origins)
 origins = os.environ.get("CORS_ORIGINS", "https://darkfrostx-cmd.github.io").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -97,16 +112,18 @@ def read_root():
     Returns a basic status message so that clients can confirm the API is
     running.
     """
-    return {"status": "ok", "version": "2025.09.05"}
-
+    return {"status": "ok", "version": API_VERSION}
 
 
 @app.get("/health")
-def health():
-    return {"status": "ok", "version": "2025.09.05"}
+def health() -> Dict[str, str]:
+    """Secondary health endpoint used by some deployment platforms."""
 
-  @app.post("/simulate", response_model=SimulationOutput)
-        tdef simulate(inp: SimulationInput) -> SimulationOutput:
+    return {"status": "ok", "version": API_VERSION}
+
+
+@app.post("/simulate", response_model=SimulationOutput)
+def simulate(inp: SimulationInput) -> SimulationOutput:
     """Run a single simulation with the provided input.
 
     This function currently implements a highly simplified scoring
@@ -114,8 +131,7 @@ def health():
     5‑HT1B occupancy, modulates it with ADHD state and gut-bias flags,
     and then maps the result into overall "Drive" and "Apathy" scores.
 
-  
-Parameters
+    Parameters
     ----------
     inp : SimulationInput
         The payload specifying receptor occupancies and modifiers.
@@ -150,9 +166,24 @@ Parameters
             ),
             "r",
         ) as f:
-            refs = json.load(f)
+            raw_refs = json.load(f)
     except FileNotFoundError:
-        refs = {}
+        raw_refs = {}
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="Invalid citation metadata") from exc
+
+    refs: Dict[str, list[Citation]] = {}
+    for raw_name, entries in raw_refs.items():
+        canon_name = canonical_receptor_name(raw_name)
+        normalised_entries: list[Citation] = []
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    normalised_entries.append(Citation(**entry))
+                elif isinstance(entry, str):
+                    normalised_entries.append(Citation(title=entry))
+        if normalised_entries:
+            refs[canon_name] = normalised_entries
 
     # Initialise metric contributions.  Baseline of 50 for each metric.
     metrics = [
@@ -221,7 +252,7 @@ Parameters
         scores[scores_name] = max(0.0, min(100.0, val))
 
     # Build citations dictionary: gather references for each receptor used.
-    citations: Dict[str, list[str]] = {}
+    citations: Dict[str, list[Citation]] = {}
     for rec_name in inp.receptors.keys():
         canon = canonical_receptor_name(rec_name)
         if canon in refs:
