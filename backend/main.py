@@ -58,6 +58,14 @@ class SimulationInput(BaseModel):
     pvt_weight: float = 0.5
 
 
+class Citation(BaseModel):
+    """Reference supporting a mechanism or receptor effect."""
+
+    title: str
+    pmid: str
+    doi: str
+
+
 class SimulationOutput(BaseModel):
     """Return format from the simulation engine.
 
@@ -69,7 +77,7 @@ class SimulationOutput(BaseModel):
     """
     scores: Dict[str, float]
     details: Dict[str, Any]
-    citations: Dict[str, list[str]]
+    citations: Dict[str, list[Citation]]
 
 
 # -----------------------------------------------------------------------------
@@ -221,11 +229,11 @@ Parameters
         scores[scores_name] = max(0.0, min(100.0, val))
 
     # Build citations dictionary: gather references for each receptor used.
-    citations: Dict[str, list[str]] = {}
+    citations: Dict[str, list[Citation]] = {}
     for rec_name in inp.receptors.keys():
         canon = canonical_receptor_name(rec_name)
         if canon in refs:
-            citations[canon] = refs[canon]
+            citations[canon] = [Citation(**ref) for ref in refs[canon]]
 
     details = {
         "raw_contributions": contrib,
