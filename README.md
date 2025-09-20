@@ -41,46 +41,121 @@ neuropharm-sim-lab/
 └── README.md
 ```
 
-## Running locally
+## Quick start for everyone
 
-1. **Clone this repository** and navigate into it:
+The project ships as two parts: a Python API and a static web page. You
+can run both on a laptop/desktop and view the UI either on that machine
+or on a phone/tablet that is on the same Wi‑Fi network.
+
+### A. Desktop or laptop setup (Windows, macOS, Linux)
+
+1. **Install Python 3.9 or newer.**
+   * Windows/macOS: download from [python.org](https://www.python.org/downloads/).
+   * Linux: use your package manager (`sudo apt install python3 python3-pip`).
+
+2. **Download the code.** Either clone via Git or grab the ZIP.
 
    ```bash
    git clone https://github.com/your-user/neuropharm-sim-lab.git
    cd neuropharm-sim-lab
    ```
 
-2. **Install backend dependencies** (requires Python ≥3.9):
+   _No Git?_
+   * Click the green **Code** button on GitHub → **Download ZIP**.
+   * Extract it and open a terminal inside the new folder.
+
+3. **Install the backend dependencies.**
 
    ```bash
    cd backend
    pip install -r requirements.txt
    ```
 
-3. **Start the API** with Uvicorn:
+4. **Start the API server.**
 
    ```bash
    uvicorn main:app --reload
    ```
 
-   By default the API runs on `http://127.0.0.1:8000`.  You can browse
-   auto‑generated Swagger documentation at `http://127.0.0.1:8000/docs`.
+   Leave this terminal open. The API runs at `http://127.0.0.1:8000` and
+   exposes live docs at `http://127.0.0.1:8000/docs`.
 
-4. **Serve the frontend**.  The simplest way is to run a tiny HTTP server
-   from the project root.  Python provides one out of the box:
+5. **Open a second terminal for the frontend.**
 
    ```bash
-   # from the project root
+   cd ..  # back to the project root
    python -m http.server 8080
    ```
 
-   Then navigate to `http://localhost:8080/frontend/index.html` in your browser.
+6. **Visit the app.**
+   * On the same computer: open `http://localhost:8080/frontend/index.html`.
+   * Adjust sliders/toggles, then press **Run simulation** to view scores and citations.
 
-   The page will allow you to move sliders and toggles to set receptor
-   occupancy and mechanisms, choose phenotypic modifiers (ADHD, gut
-   bias, acute 5‑HT1A modulation and PVT weighting) and click **Run
-   simulation** to fetch results from the backend.  A bar chart will
-   display the synthetic scores and a list of citations will appear below.
+### B. Viewing on a phone or tablet (same network)
+
+1. Keep both servers running on your computer (steps A4–A5).
+2. Find your computer’s local IP address:
+   * Windows: run `ipconfig` and look for `IPv4 Address`.
+   * macOS/Linux: run `ip addr` (look for `inet 192.168.x.x`).
+3. On your mobile device, open a browser and visit:
+
+   ```
+   http://<your-computer-ip>:8080/frontend/index.html
+   ```
+
+4. The page will use the same backend through your network. Tap the
+   controls and run simulations as if you were on the desktop.
+
+If it doesn’t load, ensure your firewall allows local connections or use
+the Swagger UI on the computer to verify the API is running.
+
+## API surface aligned with the integrated blueprint
+
+The backend now exposes the key endpoints described in the "Brain OS"
+blueprint so an external AI agent can assemble evidence, expand the
+knowledge graph, run multiscale-inspired simulations and reason about
+behavioural outcomes. Each route is documented in the auto-generated
+OpenAPI schema (`http://127.0.0.1:8000/docs`).
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/evidence/search` | GET | Return provenance-rich mechanism statements (pulled from a curated seed set) that match a free-text query. |
+| `/graph/expand` | POST | Expand the causal knowledge graph around a node (drug, receptor, pathway, behaviour) with provenance IDs, mirroring the zoomable UX discussed in the blueprint. |
+| `/predict/effects` | POST | Accept an intervention/context/assumption payload and return behavioural tag predictions with rationale, confidence and gap pointers. |
+| `/simulate` | POST | Retains the original receptor occupancy simulation, now reused internally by the higher-level endpoints. |
+| `/explain` | POST | Provide causal paths and citations for a single behavioural tag selected from a prediction run. |
+| `/gaps` | POST | Surface “research black holes” prioritised for the requested focus tags along with suggested literature calls (OpenAlex / Semantic Scholar IDs). |
+
+### Example prediction request
+
+```json
+POST /predict/effects
+{
+  "intervention": {
+    "type": "drug",
+    "name": "SSRI",
+    "compound": "fluoxetine",
+    "dose_mg": 20,
+    "schedule": "qd",
+    "duration_days": 42
+  },
+  "context": {
+    "species": "human",
+    "region_focus": ["VTA", "NAc", "mPFC", "amygdala"],
+    "behavioral_tags": ["social-affiliation", "anhedonia", "exploratory-behavior"]
+  },
+  "assumptions": {
+    "5HT1A_autoreceptor_desensitization": true,
+    "trkB_facilitation": true
+  }
+}
+```
+
+The response contains behaviour tags with directions (`up`, `down`,
+`mixed`), confidences, rationales, the causal paths used and gap IDs that
+can be cross-queried through `/gaps`. The `/explain` endpoint can be
+called afterwards for a specific tag to retrieve the supporting
+citations and causal path strings.
 
 ## Deploying
 
