@@ -41,6 +41,58 @@ neuropharm-sim-lab/
 └── README.md
 ```
 
+## Knowledge graph data layer
+
+The backend ships with a modular knowledge graph package under
+`backend/graph` that normalises scientific entities into
+[Biolink](https://biolink.github.io/biolink-model/) categories and can export
+statements in Biological Expression Language (BEL). Dedicated ingestion jobs
+pull evidence from INDRA, OpenAlex, ChEMBL, the IUPHAR/BindingDB pharmacology
+services, and the Allen Brain Atlas / EBRAINS neuroanatomy collections.
+
+### Data sources and refresh cadence
+
+| Source | Endpoint | Recommended refresh | Notes |
+| --- | --- | --- | --- |
+| INDRA | `https://db.indra.bio/statements/from_agents` | Weekly | Belief scores are cached; rerun if upstream statements change. |
+| OpenAlex | `https://api.openalex.org/works` | Weekly | Respect polite usage limits (≤1 request per second with `mailto`). |
+| ChEMBL | `https://www.ebi.ac.uk/chembl/api/data/activity.json` | Monthly | Activity snapshots are updated after every ChEMBL release. |
+| IUPHAR/Guide to Pharmacology | `https://www.guidetopharmacology.org/services/targets` | Quarterly | Re-run when receptor families or synonyms are updated. |
+| BindingDB | `https://www.bindingdb.org/axis2/services/BDBService/getLigandInteractions` | Monthly | Filter by ligand to avoid full-database pulls. |
+| Allen Brain Atlas | `https://api.brain-map.org/api/v2/data/Structure/query.json` | Quarterly | Atlas hierarchies evolve slowly; quarterly refresh keeps pace. |
+| EBRAINS atlases | `https://ebrains-curation.eu/api/atlases/regions` | Quarterly | Fetches the curated atlas registry for structural gaps. |
+
+### Free-tier limits
+
+All configured endpoints can be exercised on free tiers:
+
+- **OpenAlex** enforces a soft limit of around 10 requests per minute without
+  an API key; include a `mailto` parameter to stay compliant.
+- **ChEMBL** and **IUPHAR** are open HTTP APIs but request users cap burst
+  traffic; the ingestion jobs honour this by batching requests in small pages.
+- **BindingDB** SOAP endpoints return at most a few hundred records per call;
+  request ligand-specific windows to avoid throttling.
+- **Allen Brain Atlas** and **EBRAINS** APIs currently serve public data with
+  no authentication, but the jobs retry politely on transient 503 responses.
+- **INDRA** caches responses aggressively; repeated weekly refreshes stay
+  within their guidance for community projects.
+
+### Configuring persistence
+
+Set the following environment variables before running an ingestion job or the
+API:
+
+| Variable | Description |
+| --- | --- |
+| `GRAPH_BACKEND` | One of `memory`, `neo4j`, or `arangodb`. Defaults to `memory`. |
+| `GRAPH_URI` | Connection string (AuraDB `neo4j+s://…` or ArangoDB HTTP endpoint). |
+| `GRAPH_USERNAME` / `GRAPH_PASSWORD` | Credentials when required by the backend. |
+| `GRAPH_DATABASE` | Optional database name (used by ArangoDB). |
+
+During development the default in-memory store keeps the graph transient. For a
+hosted deployment point the configuration at a managed AuraDB or ArangoDB
+instance; both offer free-tier databases adequate for nightly refresh runs.
+
 ## Running locally
 
 Follow this numbered quick-start to see the simulator running on your own

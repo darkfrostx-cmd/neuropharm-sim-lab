@@ -1,0 +1,42 @@
+from backend.graph.bel import edge_to_bel, node_to_bel
+from backend.graph.models import (
+    BiolinkEntity,
+    BiolinkPredicate,
+    Edge,
+    Evidence,
+    Node,
+    merge_evidence,
+)
+
+
+def test_node_normalisation() -> None:
+    node = Node(id="chembl:25", name="Sertraline", category=BiolinkEntity.CHEMICAL_SUBSTANCE)
+    assert node.id == "CHEMBL:25"
+    assert node.as_linkml()["category"] == BiolinkEntity.CHEMICAL_SUBSTANCE.value
+
+
+def test_edge_bel_export() -> None:
+    drug = Node(id="CHEMBL:25", name="Sertraline", category=BiolinkEntity.CHEMICAL_SUBSTANCE)
+    gene = Node(id="HGNC:5", name="SLC6A4", category=BiolinkEntity.GENE)
+    evidence = Evidence(source="ChEMBL", reference="PMID:123", confidence=0.9)
+    edge = Edge(
+        subject=drug.id,
+        predicate=BiolinkPredicate.INTERACTS_WITH,
+        object=gene.id,
+        evidence=[evidence],
+    )
+    bel = edge_to_bel(edge, {drug.id: drug, gene.id: gene})
+    assert "Sertraline" in bel
+    assert "SLC6A4" in bel
+    assert "PMID:123" in bel
+
+
+def test_merge_evidence() -> None:
+    ev1 = Evidence(source="ChEMBL", reference="PMID:1", confidence=0.6, annotations={"assay": "binding"})
+    ev2 = Evidence(source="ChEMBL", reference="PMID:1", confidence=0.8, annotations={"organism": "human"})
+    merged = merge_evidence([ev1], [ev2])
+    assert len(merged) == 1
+    merged_ev = merged[0]
+    assert merged_ev.confidence == 0.8
+    assert merged_ev.annotations["assay"] == "binding"
+    assert merged_ev.annotations["organism"] == "human"
