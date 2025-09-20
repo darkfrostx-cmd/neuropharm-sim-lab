@@ -1,0 +1,63 @@
+.filter-panel {
+  background: #101623;
+  color: #f5f7fb;
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  box-shadow: 0 12px 24px rgba(10, 19, 40, 0.45);
+}
+
+.filter-panel__header h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.25rem;
+}
+
+.filter-panel__header p {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #b5c2e0;
+}
+
+.filter-panel__section h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.filter-panel__slider {
+  display: grid;
+  grid-template-columns: min-content 1fr min-content;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.filter-panel__hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #c4d2ef;
+}
+
+.filter-panel ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+
+.filter-panel li {
+  background: rgba(37, 51, 84, 0.6);
+  border-radius: 8px;
+  padding: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.filter-panel input[type='checkbox'] {
+  margin-right: 0.5rem;
+}
+
+.filter-panel input[type='range'] {
+  width: 100%;
+}

@@ -1,0 +1,39 @@
+.provenance-card {
+  background: rgba(18, 24, 38, 0.9);
+  border: 1px solid rgba(148, 163, 230, 0.2);
+  border-radius: 12px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.provenance-card h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.provenance-card time {
+  font-size: 0.75rem;
+  color: #cbd5f5;
+}
+
+.provenance-card__reference a {
+  color: #89dceb;
+  text-decoration: none;
+}
+
+.provenance-card__reference a:hover {
+  text-decoration: underline;
+}
+
+.provenance-card__notes {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #e0e7ff;
+}
+
+.provenance-card__confidence {
+  font-size: 0.8rem;
+  color: #f9e2af;
+}

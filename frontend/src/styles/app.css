@@ -1,0 +1,64 @@
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 2rem 3rem 4rem;
+  min-height: 100vh;
+}
+
+.app-shell__header {
+  max-width: 960px;
+}
+
+.app-shell__header h1 {
+  margin: 0 0 0.75rem;
+  font-size: 2.5rem;
+  letter-spacing: -0.02em;
+}
+
+.app-shell__header p {
+  margin: 0;
+  color: #cbd5f5;
+  font-size: 1.05rem;
+}
+
+.app-shell__main {
+  display: grid;
+  grid-template-columns: minmax(280px, 320px) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.app-shell__sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  position: sticky;
+  top: 1.5rem;
+}
+
+.app-shell__content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.app-shell__flows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+@media (max-width: 1024px) {
+  .app-shell {
+    padding: 1.5rem;
+  }
+
+  .app-shell__main {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell__sidebar {
+    position: static;
+  }
+}
