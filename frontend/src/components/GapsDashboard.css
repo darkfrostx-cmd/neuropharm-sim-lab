@@ -1,0 +1,109 @@
+.gaps-dashboard {
+  background: #0b1220;
+  color: #e0f2fe;
+  border-radius: 16px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  box-shadow: 0 12px 28px rgba(8, 18, 32, 0.55);
+}
+
+.gaps-dashboard header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.gaps-dashboard header h2 {
+  margin: 0 0 0.25rem;
+}
+
+.gaps-dashboard header p {
+  margin: 0;
+}
+
+.gaps-dashboard__timestamp {
+  font-size: 0.85rem;
+  color: #bae6fd;
+}
+
+.gaps-dashboard header button {
+  background: #1f2a44;
+  color: #f8fafc;
+  border: 1px solid rgba(148, 163, 230, 0.4);
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+}
+
+.gaps-dashboard__status {
+  margin: 0;
+}
+
+.gaps-dashboard__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.gaps-dashboard__card {
+  background: rgba(19, 28, 46, 0.85);
+  border-radius: 12px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.gaps-dashboard__card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.gaps-dashboard__card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.gaps-dashboard__tags {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gaps-dashboard__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.gaps-dashboard__metrics span {
+  font-size: 0.8rem;
+  color: #cbd5f5;
+}
+
+.gaps-dashboard__bar {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 230, 0.2);
+  overflow: hidden;
+}
+
+.gaps-dashboard__bar > div {
+  height: 100%;
+  background: linear-gradient(90deg, #f38ba8, #fab387);
+}
+
+.gaps-dashboard__bar > div.is-uncertainty {
+  background: linear-gradient(90deg, #89b4fa, #94e2d5);
+}
+
+.gaps-dashboard__metrics strong {
+  font-size: 0.9rem;
+  color: #f9e2af;
+}
