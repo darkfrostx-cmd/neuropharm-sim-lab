@@ -48,7 +48,7 @@ class BiolinkPredicate(str, Enum):
 
 PREFIX_PATTERNS: dict[BiolinkEntity, tuple[str, ...]] = {
     BiolinkEntity.GENE: ("HGNC", "NCBIGene", "ENSEMBL", "ENSG"),
-    BiolinkEntity.CHEMICAL_SUBSTANCE: ("CHEMBL", "DRUGBANK", "PUBCHEM"),
+    BiolinkEntity.CHEMICAL_SUBSTANCE: ("CHEMBL", "DRUGBANK", "BINDINGDB", "PUBCHEM"),
     BiolinkEntity.DISEASE: ("MONDO", "DOID", "EFO"),
     BiolinkEntity.ANATOMICAL_ENTITY: ("UBERON", "BIRNLEX", "MBA"),
     BiolinkEntity.BRAIN_REGION: ("UBERON", "MBA", "EBRAINS"),
@@ -157,18 +157,33 @@ def normalize_identifier(category: BiolinkEntity, identifier: str) -> str:
         raise ValueError("Empty identifier")
     if ":" in identifier and not identifier.lower().startswith("http"):
         prefix, local_id = identifier.split(":", 1)
-        prefix = prefix.upper()
+        prefix = prefix.strip().upper()
         local_id = local_id.strip()
+        simplified = local_id.replace("-", "").replace("_", "")
+        if simplified.isalnum():
+            local_id = local_id.upper()
         return f"{prefix}:{local_id}"
-    if category in PREFIX_PATTERNS:
-        patterns = PREFIX_PATTERNS[category]
+    patterns = PREFIX_PATTERNS.get(category)
+    if patterns:
+        upper_identifier = identifier.upper()
         for prefix in patterns:
-            if identifier.upper().startswith(prefix.upper() + ":"):
-                return identifier.upper()
+            prefix_upper = prefix.upper()
+            if upper_identifier.startswith(prefix_upper):
+                remainder = identifier[len(prefix) :]
+                remainder = remainder.lstrip(": -_")
+                remainder = remainder.strip()
+                if remainder:
+                    simplified = remainder.replace("-", "").replace("_", "")
+                    local_id = remainder.upper() if simplified.isalnum() else remainder
+                    return f"{prefix_upper}:{local_id}"
         if category == BiolinkEntity.PUBLICATION and identifier.isdigit():
             return f"PMID:{identifier}"
-    cleaned = re.sub(r"[^A-Za-z0-9]+", "_", identifier).strip("_")
+    allowed_punctuation = "-._/"
+    cleaned = re.sub(rf"[^A-Za-z0-9{re.escape(allowed_punctuation)}]+", "_", identifier)
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
     default_prefix = PREFIX_PATTERNS.get(category, ("NEUROPHARM",))[0]
+    if not cleaned:
+        cleaned = identifier.replace(":", "_").strip()
     return f"{default_prefix}:{cleaned}".upper()
 
 

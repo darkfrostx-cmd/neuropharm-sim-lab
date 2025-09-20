@@ -1,3 +1,5 @@
+import pytest
+
 from backend.graph.bel import edge_to_bel, node_to_bel
 from backend.graph.models import (
     BiolinkEntity,
@@ -6,13 +8,42 @@ from backend.graph.models import (
     Evidence,
     Node,
     merge_evidence,
+    normalize_identifier,
 )
 
 
-def test_node_normalisation() -> None:
-    node = Node(id="chembl:25", name="Sertraline", category=BiolinkEntity.CHEMICAL_SUBSTANCE)
+@pytest.mark.parametrize("raw_id", ["chembl:25", "CHEMBL25"])
+def test_node_normalisation(raw_id: str) -> None:
+    node = Node(id=raw_id, name="Sertraline", category=BiolinkEntity.CHEMICAL_SUBSTANCE)
     assert node.id == "CHEMBL:25"
     assert node.as_linkml()["category"] == BiolinkEntity.CHEMICAL_SUBSTANCE.value
+
+
+@pytest.mark.parametrize(
+    ("category", "raw", "expected"),
+    [
+        (BiolinkEntity.CHEMICAL_SUBSTANCE, "CHEMBL25", "CHEMBL:25"),
+        (BiolinkEntity.CHEMICAL_SUBSTANCE, "drugbankdb0001", "DRUGBANK:DB0001"),
+        (BiolinkEntity.CHEMICAL_SUBSTANCE, "BindingDB500501", "BINDINGDB:500501"),
+        (
+            BiolinkEntity.CHEMICAL_SUBSTANCE,
+            "BindingDB:500501",
+            "BINDINGDB:500501",
+        ),
+        (
+            BiolinkEntity.PERSON,
+            "ORCID0000-0002-1825-0097",
+            "ORCID:0000-0002-1825-0097",
+        ),
+        (
+            BiolinkEntity.PERSON,
+            "0000-0002-1825-0097",
+            "ORCID:0000-0002-1825-0097",
+        ),
+    ],
+)
+def test_normalize_identifier_known_prefixes(category, raw, expected) -> None:
+    assert normalize_identifier(category, raw) == expected
 
 
 def test_edge_bel_export() -> None:
