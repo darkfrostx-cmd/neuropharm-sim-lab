@@ -122,8 +122,7 @@ def simulate(inp: SimulationInput) -> SimulationOutput:
     5‑HT1B occupancy, modulates it with ADHD state and gut-bias flags,
     and then maps the result into overall "Drive" and "Apathy" scores.
 
-  
-Parameters
+    Parameters
     ----------
     inp : SimulationInput
         The payload specifying receptor occupancies and modifiers.
@@ -135,7 +134,7 @@ Parameters
         and citations underpinning the mechanisms used.
     """
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Helper functions
     #
     # To support various input naming conventions (e.g. "5HT2C" vs
@@ -209,8 +208,8 @@ Parameters
             continue
         weights = get_receptor_weights(canon)
         factor = get_mechanism_factor(spec.mech)
-        for m, w in weights.items():
-            contrib[m] += w * spec.occ * factor
+        for metric_name, weight in weights.items():
+            contrib[metric_name] += weight * spec.occ * factor
 
     # Apply phenotype modifiers.  ADHD reduces baseline tone for drive
     # and motivation; gut_bias attenuates negative contributions (makes
@@ -220,40 +219,41 @@ Parameters
         contrib["drive"] -= 0.3
         contrib["motivation"] -= 0.2
     if inp.gut_bias:
-        for m in metrics:
+        for metric_name in metrics:
             # If contribution is negative, reduce its magnitude by 10%
-            if contrib[m] < 0:
-                contrib[m] *= 0.9
+            if contrib[metric_name] < 0:
+                contrib[metric_name] *= 0.9
     if inp.acute_1a:
-        for m in metrics:
-            contrib[m] *= 0.75
+        for metric_name in metrics:
+            contrib[metric_name] *= 0.75
+
     # PVT gating weight scales contributions from 5-HT1B (if present);
     # approximate by scaling global contributions by (1 - pvt_weight*0.2)
     contrib_scale = 1.0 - (inp.pvt_weight * 0.2)
-    for m in metrics:
-        contrib[m] *= contrib_scale
+    for metric_name in metrics:
+        contrib[metric_name] *= contrib_scale
 
     # Convert contributions to scores.  Baseline is 50; each unit of
     # contribution moves the score by 20 points.  Clamp between 0 and
     # 100.  Note: for apathy, higher contribution increases apathy; for
     # other metrics, contributions add directly.
     scores: Dict[str, float] = {}
-    for m in metrics:
+    score_name_map = {
+        "drive": "DriveInvigoration",
+        "apathy": "ApathyBlunting",
+        "motivation": "Motivation",
+        "cognitive_flexibility": "CognitiveFlexibility",
+        "anxiety": "Anxiety",
+        "sleep_quality": "SleepQuality",
+    }
+    for metric_name in metrics:
         base = 50.0
-        change = 20.0 * contrib[m]
-        val = base + change
+        change = 20.0 * contrib[metric_name]
+        value = base + change
         # Invert apathy into ApathyBlunting (higher apathy = lower score)
-        if m == "apathy":
-            val = 100.0 - val
-        scores_name = {
-            "drive": "DriveInvigoration",
-            "apathy": "ApathyBlunting",
-            "motivation": "Motivation",
-            "cognitive_flexibility": "CognitiveFlexibility",
-            "anxiety": "Anxiety",
-            "sleep_quality": "SleepQuality",
-        }[m]
-        scores[scores_name] = max(0.0, min(100.0, val))
+        if metric_name == "apathy":
+            value = 100.0 - value
+        scores[score_name_map[metric_name]] = max(0.0, min(100.0, value))
 
     # Build citations dictionary: gather references for each receptor used.
     citations: Dict[str, list[Citation]] = {}
