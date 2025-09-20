@@ -1,11 +1,11 @@
-e"""
+"""
 FastAPI backend for the neuropharm simulation lab.
 
 This service exposes a `/simulate` endpoint that accepts a JSON
 payload describing the current receptor occupancy, acute/chronic flags,
 phenotype modifiers (such as ADHD), gut-bias toggles, and other
 parameters. It returns computed scores for motivational drive, apathy
-blunting, and other high‑level readouts.  The current implementation
+blunting, and other high-level readouts.  The current implementation
 provides a simple placeholder model to demonstrate the API and wiring;
 future work should extend this file with a full mechanistic model of
 serotonin, dopamine, glutamate, histamine, and other systems across
@@ -15,10 +15,9 @@ The API also exposes a root `/` endpoint for a basic health check.
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any
-from fastapi.middleware.cors import CORSMiddleware
-
 
 import numpy as np
 import os
@@ -29,6 +28,7 @@ from .engine.receptors import get_receptor_weights, get_mechanism_factor, RECEPT
 # -----------------------------------------------------------------------------
 # Pydantic models
 # -----------------------------------------------------------------------------
+
 
 class ReceptorSpec(BaseModel):
     """Specification for a single receptor.
@@ -41,6 +41,7 @@ class ReceptorSpec(BaseModel):
         Mechanism of the ligand ("agonist", "antagonist", "partial", or
         "inverse").  Future versions may support additional values.
     """
+
     occ: float
     mech: str
 
@@ -51,6 +52,7 @@ class SimulationInput(BaseModel):
     Fields are deliberately flexible to allow future extensions
     (additional neurotransmitters, receptor subtypes, etc.).
     """
+
     receptors: Dict[str, ReceptorSpec]
     acute_1a: bool = False
     adhd: bool = False
@@ -61,25 +63,33 @@ class SimulationInput(BaseModel):
 class SimulationOutput(BaseModel):
     """Return format from the simulation engine.
 
-    `scores` contains high‑level behavioural metrics normalised to 0–100.
+    `scores` contains high-level behavioural metrics normalised to 0–100.
     `details` includes intermediate values (e.g. computed dopamine phasic
     drive) that may be useful for debugging or future UI visualisations.
     `citations` returns a list of PubMed IDs and/or DOIs supporting the
     mechanisms involved in generating the result.
     """
+
     scores: Dict[str, float]
     details: Dict[str, Any]
-    citations: Dict[str, list[str]]
+    citations: Dict[str, list[Dict[str, str]]]
 
 
 # -----------------------------------------------------------------------------
 # Application
 # -----------------------------------------------------------------------------
 
-app = FastAPI(title="Neuropharm Simulation API",
-              description=("Simulate serotonergic, dopaminergic and other\n                           neurotransmitter systems under a variety of\n                           receptor manipulations.  See the README for\n                           details on the expected payload format."))
+app = FastAPI(
+    title="Neuropharm Simulation API",
+    description=(
+        "Simulate serotonergic, dopaminergic and other\n"
+        "                           neurotransmitter systems under a variety of\n"
+        "                           receptor manipulations.  See the README for\n"
+        "                           details on the expected payload format."
+    ),
+)
 
-# Configure CORS
+# Configure CORS based on environment variable to allow the GitHub Pages front-end.
 origins = os.environ.get("CORS_ORIGINS", "https://darkfrostx-cmd.github.io").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -97,25 +107,27 @@ def read_root():
     Returns a basic status message so that clients can confirm the API is
     running.
     """
-    return {"status": "ok", "version": "2025.09.05"}
 
+    return {"status": "ok", "version": "2025.09.05"}
 
 
 @app.get("/health")
 def health():
+    """Secondary health check endpoint used by some monitoring scripts."""
+
     return {"status": "ok", "version": "2025.09.05"}
 
-  @app.post("/simulate", response_model=SimulationOutput)
-        tdef simulate(inp: SimulationInput) -> SimulationOutput:
+
+@app.post("/simulate", response_model=SimulationOutput)
+def simulate(inp: SimulationInput) -> SimulationOutput:
     """Run a single simulation with the provided input.
 
     This function currently implements a highly simplified scoring
-    algorithm. It computes phasic dopamine drive based on 5‑HT2C and
-    5‑HT1B occupancy, modulates it with ADHD state and gut-bias flags,
+    algorithm. It computes phasic dopamine drive based on 5-HT2C and
+    5-HT1B occupancy, modulates it with ADHD state and gut-bias flags,
     and then maps the result into overall "Drive" and "Apathy" scores.
 
-  
-Parameters
+    Parameters
     ----------
     inp : SimulationInput
         The payload specifying receptor occupancies and modifiers.
@@ -123,18 +135,20 @@ Parameters
     Returns
     -------
     SimulationOutput
-        A dictionary containing high‑level scores, intermediate details
+        A dictionary containing high-level scores, intermediate details
         and citations underpinning the mechanisms used.
     """
 
     # ---------------------------------------------------------------------
     # Helper functions
-    #
-    # To support various input naming conventions (e.g. "5HT2C" vs
-    # "5-HT2C"), normalise receptor names by inserting a dash after the
-    # "5" when missing.  This helper returns the canonical key used in
-    # the RECEPTORS mapping.
+    # ---------------------------------------------------------------------
     def canonical_receptor_name(name: str) -> str:
+        """Normalise receptor identifiers to the canonical key.
+
+        Accepts legacy names such as "5HT2C" and returns the hyphenated
+        form ("5-HT2C") used in the RECEPTORS mapping.
+        """
+
         if name in RECEPTORS:
             return name
         # Normalise names like "5HT2C" → "5-HT2C" and "5ht1a" → "5-HT1A"
@@ -144,12 +158,8 @@ Parameters
     # Load receptor citations from refs.json.  This file should map
     # canonical receptor names to lists of PubMed IDs or DOIs.
     try:
-        with open(
-            __import__("os").path.join(
-                __import__("os").path.dirname(__file__), "refs.json"
-            ),
-            "r",
-        ) as f:
+        refs_path = os.path.join(os.path.dirname(__file__), "refs.json")
+        with open(refs_path, "r", encoding="utf-8") as f:
             refs = json.load(f)
     except FileNotFoundError:
         refs = {}
@@ -165,9 +175,7 @@ Parameters
     ]
     contrib: Dict[str, float] = {m: 0.0 for m in metrics}
 
-    # Accumulate contributions from each receptor in the input.  For
-    # unknown receptors, silently ignore.  Mechanism factor scales the
-    # per‑unit weight; occupancy scales the contribution.
+    # Accumulate contributions from each receptor in the input.
     for rec_name, spec in inp.receptors.items():
         canon = canonical_receptor_name(rec_name)
         if canon not in RECEPTORS:
@@ -177,37 +185,29 @@ Parameters
         for m, w in weights.items():
             contrib[m] += w * spec.occ * factor
 
-    # Apply phenotype modifiers.  ADHD reduces baseline tone for drive
-    # and motivation; gut_bias attenuates negative contributions (makes
-    # apathy less severe and drive more preserved); acute_1a lowers
-    # overall serotonergic effect (scale contributions down).
+    # Apply phenotype modifiers.
     if inp.adhd:
         contrib["drive"] -= 0.3
         contrib["motivation"] -= 0.2
     if inp.gut_bias:
         for m in metrics:
-            # If contribution is negative, reduce its magnitude by 10%
             if contrib[m] < 0:
                 contrib[m] *= 0.9
     if inp.acute_1a:
         for m in metrics:
             contrib[m] *= 0.75
-    # PVT gating weight scales contributions from 5-HT1B (if present);
-    # approximate by scaling global contributions by (1 - pvt_weight*0.2)
+
+    # PVT gating weight scales contributions from 5-HT1B (if present).
     contrib_scale = 1.0 - (inp.pvt_weight * 0.2)
     for m in metrics:
         contrib[m] *= contrib_scale
 
-    # Convert contributions to scores.  Baseline is 50; each unit of
-    # contribution moves the score by 20 points.  Clamp between 0 and
-    # 100.  Note: for apathy, higher contribution increases apathy; for
-    # other metrics, contributions add directly.
+    # Convert contributions to scores with a baseline of 50.
     scores: Dict[str, float] = {}
     for m in metrics:
         base = 50.0
         change = 20.0 * contrib[m]
         val = base + change
-        # Invert apathy into ApathyBlunting (higher apathy = lower score)
         if m == "apathy":
             val = 100.0 - val
         scores_name = {
@@ -221,7 +221,7 @@ Parameters
         scores[scores_name] = max(0.0, min(100.0, val))
 
     # Build citations dictionary: gather references for each receptor used.
-    citations: Dict[str, list[str]] = {}
+    citations: Dict[str, list[Dict[str, str]]] = {}
     for rec_name in inp.receptors.keys():
         canon = canonical_receptor_name(rec_name)
         if canon in refs:
