@@ -26,9 +26,9 @@ from pathlib import Path
 from .engine.receptors import (
     RECEPTORS,
     canonical_receptor_name,
-    get_mechanism_factor,
     get_receptor_weights,
 )
+from .simulation import EngineRequest, ReceptorEngagement, SimulationEngine
 
 
 Mechanism = Literal["agonist", "antagonist", "partial", "inverse"]
@@ -40,6 +40,8 @@ try:
         RECEPTOR_REFS: dict[str, list[dict[str, str]]] = json.load(f)
 except FileNotFoundError:
     RECEPTOR_REFS = {}
+
+ENGINE = SimulationEngine(time_step=1.0)
 
 # -----------------------------------------------------------------------------
 # Pydantic models
@@ -68,6 +70,7 @@ class SimulationInput(BaseModel):
     """
     receptors: Dict[str, ReceptorSpec]
     acute_1a: bool = False
+    dosing: Literal["acute", "chronic"] = "chronic"
     adhd: bool = False
     gut_bias: bool = False
     pvt_weight: float = 0.5
@@ -88,11 +91,13 @@ class SimulationOutput(BaseModel):
     `details` includes intermediate values (e.g. computed dopamine phasic
     drive) that may be useful for debugging or future UI visualisations.
     `citations` returns a list of PubMed IDs and/or DOIs supporting the
-    mechanisms involved in generating the result.
+    mechanisms involved in generating the result.  `confidence` provides a
+    0–1 certainty estimate for each behavioural score.
     """
     scores: Dict[str, float]
     details: Dict[str, Any]
     citations: Dict[str, list[Citation]]
+    confidence: Dict[str, float]
 
 
 # -----------------------------------------------------------------------------
@@ -130,96 +135,44 @@ def health():
 
 @app.post("/simulate", response_model=SimulationOutput)
 def simulate(inp: SimulationInput) -> SimulationOutput:
-    """Run a single simulation with the provided input.
+    """Run a single simulation with the provided input."""
 
-    This function currently implements a highly simplified scoring
-    algorithm. It computes phasic dopamine drive based on 5‑HT2C and
-    5‑HT1B occupancy, modulates it with ADHD state and gut-bias flags,
-    and then maps the result into overall "Drive" and "Apathy" scores.
+    regimen: Literal["acute", "chronic"] = inp.dosing
+    if inp.acute_1a:
+        regimen = "acute"
 
-  
-Parameters
-    ----------
-    inp : SimulationInput
-        The payload specifying receptor occupancies and modifiers.
-
-    Returns
-    -------
-    SimulationOutput
-        A dictionary containing high‑level scores, intermediate details
-        and citations underpinning the mechanisms used.
-    """
-
-    # Initialise metric contributions.  Baseline of 50 for each metric.
-    metrics = [
-        "drive",
-        "apathy",
-        "motivation",
-        "cognitive_flexibility",
-        "anxiety",
-        "sleep_quality",
-    ]
-    contrib: Dict[str, float] = {m: 0.0 for m in metrics}
-
-    # Accumulate contributions from each receptor in the input.  For
-    # unknown receptors, silently ignore.  Mechanism factor scales the
-    # per‑unit weight; occupancy scales the contribution.
+    engagements: Dict[str, ReceptorEngagement] = {}
     for rec_name, spec in inp.receptors.items():
         canon = canonical_receptor_name(rec_name)
         if canon not in RECEPTORS:
             continue
         weights = get_receptor_weights(canon)
-        try:
-            factor = get_mechanism_factor(spec.mech)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        for m, w in weights.items():
-            contrib[m] += w * spec.occ * factor
+        if weights:
+            kg_weight = sum(abs(w) for w in weights.values()) / len(weights)
+        else:
+            kg_weight = 0.25
+        evidence = min(0.95, 0.45 + 0.1 * len(RECEPTOR_REFS.get(canon, [])))
+        engagements[canon] = ReceptorEngagement(
+            name=canon,
+            occupancy=spec.occ,
+            mechanism=spec.mech,
+            kg_weight=kg_weight,
+            evidence=evidence,
+        )
 
-    # Apply phenotype modifiers.  ADHD reduces baseline tone for drive
-    # and motivation; gut_bias attenuates negative contributions (makes
-    # apathy less severe and drive more preserved); acute_1a lowers
-    # overall serotonergic effect (scale contributions down).
-    if inp.adhd:
-        contrib["drive"] -= 0.3
-        contrib["motivation"] -= 0.2
-    if inp.gut_bias:
-        for m in metrics:
-            # If contribution is negative, reduce its magnitude by 10%
-            if contrib[m] < 0:
-                contrib[m] *= 0.9
-    if inp.acute_1a:
-        for m in metrics:
-            contrib[m] *= 0.75
-    # PVT gating weight scales contributions from 5-HT1B (if present);
-    # approximate by scaling global contributions by (1 - pvt_weight*0.2)
-    contrib_scale = 1.0 - (inp.pvt_weight * 0.2)
-    for m in metrics:
-        contrib[m] *= contrib_scale
+    engine_request = EngineRequest(
+        receptors=engagements,
+        regimen=regimen,
+        adhd=inp.adhd,
+        gut_bias=inp.gut_bias,
+        pvt_weight=inp.pvt_weight,
+    )
 
-    # Convert contributions to scores.  Baseline is 50; each unit of
-    # contribution moves the score by 20 points.  Clamp between 0 and
-    # 100.  Note: for apathy, higher contribution increases apathy; for
-    # other metrics, contributions add directly.
-    scores: Dict[str, float] = {}
-    for m in metrics:
-        base = 50.0
-        change = 20.0 * contrib[m]
-        val = base + change
-        # Invert apathy into ApathyBlunting (higher apathy = lower score)
-        if m == "apathy":
-            val = 100.0 - val
-        scores_name = {
-            "drive": "DriveInvigoration",
-            "apathy": "ApathyBlunting",
-            "motivation": "Motivation",
-            "cognitive_flexibility": "CognitiveFlexibility",
-            "anxiety": "Anxiety",
-            "sleep_quality": "SleepQuality",
-        }[m]
-        scores[scores_name] = max(0.0, min(100.0, val))
+    try:
+        result = ENGINE.run(engine_request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # Build citations dictionary: gather references for each receptor used.
     citations: Dict[str, list[Citation]] = {}
     for rec_name in inp.receptors.keys():
         canon = canonical_receptor_name(rec_name)
@@ -227,8 +180,14 @@ Parameters
             citations[canon] = [Citation(**ref) for ref in RECEPTOR_REFS[canon]]
 
     details = {
-        "raw_contributions": contrib,
-        "final_scores": scores,
+        "timepoints": result.timepoints,
+        "trajectories": result.trajectories,
+        "modules": result.module_summaries,
     }
 
-    return SimulationOutput(scores=scores, details=details, citations=citations)
+    return SimulationOutput(
+        scores=result.scores,
+        details=details,
+        citations=citations,
+        confidence=result.confidence,
+    )
