@@ -1,4 +1,4 @@
-e"""
+"""
 FastAPI backend for the neuropharm simulation lab.
 
 This service exposes a `/simulate` endpoint that accepts a JSON
@@ -16,13 +16,14 @@ The API also exposes a root `/` endpoint for a basic health check.
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Dict, Any
+from typing import Dict, Any, List
 from fastapi.middleware.cors import CORSMiddleware
 
 
 import numpy as np
 import os
 import json
+import re
 
 from .engine.receptors import get_receptor_weights, get_mechanism_factor, RECEPTORS
 
@@ -58,18 +59,27 @@ class SimulationInput(BaseModel):
     pvt_weight: float = 0.5
 
 
+class Citation(BaseModel):
+    """Reference supporting a receptor mechanism."""
+
+    title: str
+    pmid: str | None = None
+    doi: str | None = None
+
+
 class SimulationOutput(BaseModel):
     """Return format from the simulation engine.
 
     `scores` contains high‑level behavioural metrics normalised to 0–100.
     `details` includes intermediate values (e.g. computed dopamine phasic
     drive) that may be useful for debugging or future UI visualisations.
-    `citations` returns a list of PubMed IDs and/or DOIs supporting the
-    mechanisms involved in generating the result.
+    `citations` returns a list of reference entries (title, PubMed ID and
+    DOI where available) supporting the mechanisms involved in generating
+    the result.
     """
     scores: Dict[str, float]
     details: Dict[str, Any]
-    citations: Dict[str, list[str]]
+    citations: Dict[str, List[Citation]]
 
 
 # -----------------------------------------------------------------------------
@@ -105,8 +115,8 @@ def read_root():
 def health():
     return {"status": "ok", "version": "2025.09.05"}
 
-  @app.post("/simulate", response_model=SimulationOutput)
-        tdef simulate(inp: SimulationInput) -> SimulationOutput:
+@app.post("/simulate", response_model=SimulationOutput)
+def simulate(inp: SimulationInput) -> SimulationOutput:
     """Run a single simulation with the provided input.
 
     This function currently implements a highly simplified scoring
@@ -135,11 +145,41 @@ Parameters
     # "5" when missing.  This helper returns the canonical key used in
     # the RECEPTORS mapping.
     def canonical_receptor_name(name: str) -> str:
+        """Return the canonical receptor identifier used by the engine.
+
+        Normalisation is intentionally tolerant: callers may supply
+        different delimiters ("5HT2C", "5 HT2C"), mixed case
+        ("5ht1a"), or even gene-style labels ("HTR2A").  We map all of
+        these onto the canonical keys declared in ``RECEPTORS`` where
+        possible so that the rest of the simulation can look up weights
+        and citations consistently.
+        """
+
         if name in RECEPTORS:
             return name
-        # Normalise names like "5HT2C" → "5-HT2C" and "5ht1a" → "5-HT1A"
-        name_upper = name.upper().replace("HT", "-HT")
-        return name_upper
+
+        # Harmonise case, whitespace and dash variants.
+        normalised = name.strip().upper()
+        normalised = normalised.replace("–", "-")  # en dash → hyphen
+        normalised = normalised.replace("_", "-")
+        normalised = re.sub(r"\s+", "", normalised)
+
+        # Direct lookup after basic cleaning.
+        if normalised in RECEPTORS:
+            return normalised
+
+        # Handle forms like "5HT2C" / "5-HT2C" / "5 HT2C".
+        normalised = re.sub(r"^5[-\s]?HT", "5-HT", normalised)
+        if normalised in RECEPTORS:
+            return normalised
+
+        # Handle gene notation such as HTR2A.
+        if normalised.startswith("HTR"):
+            candidate = "5-HT" + normalised[3:]
+            if candidate in RECEPTORS:
+                return candidate
+
+        return normalised
 
     # Load receptor citations from refs.json.  This file should map
     # canonical receptor names to lists of PubMed IDs or DOIs.
@@ -153,6 +193,14 @@ Parameters
             refs = json.load(f)
     except FileNotFoundError:
         refs = {}
+
+    # Ensure reference keys follow the same canonical scheme so that
+    # citations are returned even if ``refs.json`` contains alternative
+    # spellings.
+    refs = {
+        canonical_receptor_name(key): value
+        for key, value in refs.items()
+    }
 
     # Initialise metric contributions.  Baseline of 50 for each metric.
     metrics = [
@@ -221,11 +269,19 @@ Parameters
         scores[scores_name] = max(0.0, min(100.0, val))
 
     # Build citations dictionary: gather references for each receptor used.
-    citations: Dict[str, list[str]] = {}
+    citations: Dict[str, List[Citation]] = {}
+
+    def to_citation(entry: Any) -> Citation:
+        if isinstance(entry, Citation):
+            return entry
+        if isinstance(entry, dict):
+            return Citation(**entry)
+        return Citation(title=str(entry))
+
     for rec_name in inp.receptors.keys():
         canon = canonical_receptor_name(rec_name)
         if canon in refs:
-            citations[canon] = refs[canon]
+            citations[canon] = [to_citation(ref) for ref in refs[canon]]
 
     details = {
         "raw_contributions": contrib,
