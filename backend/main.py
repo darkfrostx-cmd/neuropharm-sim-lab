@@ -23,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 import os
 import json
+import re
 
 from .engine.receptors import get_receptor_weights, get_mechanism_factor, RECEPTORS
 
@@ -122,8 +123,7 @@ def simulate(inp: SimulationInput) -> SimulationOutput:
     5‑HT1B occupancy, modulates it with ADHD state and gut-bias flags,
     and then maps the result into overall "Drive" and "Apathy" scores.
 
-  
-Parameters
+    Parameters
     ----------
     inp : SimulationInput
         The payload specifying receptor occupancies and modifiers.
@@ -135,32 +135,62 @@ Parameters
         and citations underpinning the mechanisms used.
     """
 
-    # ---------------------------------------------------------------------
+    # ------------------------------------------------------------------
     # Helper functions
     #
-    # To support various input naming conventions (e.g. "5HT2C" vs
-    # "5-HT2C"), normalise receptor names by inserting a dash after the
-    # "5" when missing.  This helper returns the canonical key used in
-    # the RECEPTORS mapping.
+    # Canonical receptor names follow the backend convention of
+    # upper-case identifiers with a dashed 5-HT prefix for serotonin
+    # receptors (e.g. "5-HT2C").  This helper folds common variations
+    # such as "5HT2C" or "5_ht2c" into that canonical form.
     def canonical_receptor_name(name: str) -> str:
-        if name in RECEPTORS:
-            return name
-        # Normalise names like "5HT2C" → "5-HT2C" and "5ht1a" → "5-HT1A"
-        name_upper = name.upper().replace("HT", "-HT")
-        return name_upper
+        cleaned = re.sub(r"[\s_]+", "", name).upper()
+        if cleaned in RECEPTORS:
+            return cleaned
+        canonical = re.sub(r"^5[^A-Z0-9]*HT", "5-HT", cleaned)
+        if canonical in RECEPTORS:
+            return canonical
+        return canonical
 
-    # Load receptor citations from refs.json.  This file should map
-    # canonical receptor names to lists of PubMed IDs or DOIs.
+    def normalise_refs(raw_refs: Dict[str, list]) -> Dict[str, list[str]]:
+        """Return a refs mapping keyed by canonical receptor names."""
+
+        normalised: Dict[str, list[str]] = {}
+        for raw_name, entries in raw_refs.items():
+            canon_name = canonical_receptor_name(raw_name)
+            if not canon_name:
+                continue
+            existing_entries = normalised.setdefault(canon_name, [])
+            seen = set(existing_entries)
+            for entry in entries:
+                if isinstance(entry, str):
+                    citation = entry
+                elif isinstance(entry, dict):
+                    parts = []
+                    pmid = entry.get("pmid")
+                    doi = entry.get("doi")
+                    title = entry.get("title")
+                    if pmid:
+                        parts.append(f"PMID:{pmid}")
+                    if doi:
+                        parts.append(f"DOI:{doi}")
+                    if title:
+                        parts.append(title)
+                    citation = " | ".join(parts) if parts else json.dumps(entry, sort_keys=True)
+                else:
+                    citation = str(entry)
+                if citation not in seen:
+                    existing_entries.append(citation)
+                    seen.add(citation)
+        return normalised
+
+    # Load receptor citations from refs.json.  This file maps canonical
+    # receptor names to lists of PubMed IDs or DOIs.
     try:
-        with open(
-            __import__("os").path.join(
-                __import__("os").path.dirname(__file__), "refs.json"
-            ),
-            "r",
-        ) as f:
-            refs = json.load(f)
+        with open(os.path.join(os.path.dirname(__file__), "refs.json"), "r") as f:
+            refs_raw = json.load(f)
     except FileNotFoundError:
-        refs = {}
+        refs_raw = {}
+    refs = normalise_refs(refs_raw)
 
     # Initialise metric contributions.  Baseline of 50 for each metric.
     metrics = [
