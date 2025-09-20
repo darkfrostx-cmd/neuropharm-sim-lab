@@ -24,6 +24,7 @@ Three.js) to explore the model in real time.
 neuropharm-sim-lab/
 ├── backend
 │   ├── engine/          # definitions of receptors, weights and helper functions
+│   ├── simulation/      # PySB, PK/PD, and circuit orchestration layers
 │   │   ├── __init__.py
 │   │   └── receptors.py
 │   ├── main.py          # FastAPI app exposing the simulation endpoint
@@ -40,6 +41,24 @@ neuropharm-sim-lab/
 │       └── deploy-frontend.yml # GitHub Actions workflow for Pages deployment
 └── README.md
 ```
+
+## Simulation engine architecture
+
+The backend simulation stack is split into three modular layers beneath
+`backend/simulation/`:
+
+1. **`molecular.py`** converts knowledge-graph derived receptor occupancies
+   into PySB-style cascades, returning time-varying activity for CREB, BDNF,
+   and other downstream effectors.
+2. **`pkpd.py`** approximates Open Systems Pharmacology / PBPK workflows to
+   produce plasma and brain concentration profiles under acute or chronic
+   dosing assumptions.
+3. **`circuit.py`** emulates The Virtual Brain coupling to summarise regional
+   activation dynamics in cortico-striatal-amygdala loops.
+
+`engine.py` orchestrates these layers, aligns their time grids, and produces
+behavioural scores with associated confidence intervals based on the evidence
+density captured in the knowledge graph.
 
 ## Knowledge graph data layer
 
@@ -140,6 +159,14 @@ call-outs for screenshots you can capture or replace later.
      cd backend
      pip install -r requirements.txt
      ```
+
+     The optional scientific toolkits listed at the end of
+     `backend/requirements.txt` – `PySB`, `OSPSuite`, and
+     `tvb-library` – enable the full molecular cascade, PBPK, and brain
+     network integrations. They are not required for the lightweight test
+     harness used in this repository, but you should install them when you
+     plan to run external PySB models, Open Systems Pharmacology workflows,
+     or The Virtual Brain coupling experiments.
 
    * Start the FastAPI server:
 
