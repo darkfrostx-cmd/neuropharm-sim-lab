@@ -26,6 +26,12 @@ neuropharm-sim-lab/
 │   ├── engine/          # definitions of receptors, weights and helper functions
 │   │   ├── __init__.py
 │   │   └── receptors.py
+│   ├── simulation/     # multiscale pipeline (molecular, PK/PD, circuit coordination)
+│   │   ├── __init__.py
+│   │   ├── circuit.py
+│   │   ├── engine.py
+│   │   ├── molecular.py
+│   │   └── pkpd.py
 │   ├── main.py          # FastAPI app exposing the simulation endpoint
 │   ├── requirements.txt # Python dependencies
 │   └── refs.json        # citation database for each receptor
@@ -40,6 +46,43 @@ neuropharm-sim-lab/
 │       └── deploy-frontend.yml # GitHub Actions workflow for Pages deployment
 └── README.md
 ```
+
+## Multiscale simulation pipeline
+
+The `/simulate` endpoint now orchestrates a three-layer pipeline:
+
+1. **Molecular layer (`backend/simulation/molecular.py`)** – analytic surrogates
+   wrap the PySB receptor models and produce time-resolved receptor and cascade
+   activity traces using knowledge-graph inputs such as affinity (Ki) and
+   expression.
+2. **PK/PD layer (`backend/simulation/pkpd.py`)** – a lightweight
+   physiologically based pharmacokinetic/pharmacodynamic (PBPK) surrogate that
+   mirrors Open Systems Pharmacology (OSP) tooling and converts molecular
+   activity into brain exposure curves.
+3. **Circuit layer (`backend/simulation/circuit.py`)** – region level dynamics
+   inspired by The Virtual Brain (TVB) propagate the PK/PD signal across a
+   small network to generate behavioural metrics.
+
+`backend/simulation/engine.py` coordinates these components and exposes a typed
+`SimulationConfig` that accepts acute vs chronic exposure assumptions, ADHD and
+gut-bias modifiers, and a `propagate_uncertainty` flag. The FastAPI payload now
+includes:
+
+```json
+{
+  "exposure": "acute" | "chronic",
+  "propagate_uncertainty": true | false
+}
+```
+
+These switches control adaptation constants and whether analytic uncertainty
+estimates from each layer are folded into the response. The `details`
+dictionary returned by `/simulate` exposes the full time axis alongside
+per-layer outputs so downstream visualisations can animate the trajectory.
+
+Automated regression tests (`backend/tests/test_simulation_pipeline.py`) pin the
+chronic selective-serotonin reuptake inhibitor (SSRI) scenario and verify that
+uncertainty toggles behave as expected.
 
 ## Running locally
 
@@ -140,6 +183,23 @@ call-outs for screenshots you can capture or replace later.
 
    > 📸 **Screenshot placeholder:** Browser window showing the simulator
    > page with sliders and the chart.
+
+### Scientific engines and external dependencies
+
+The multiscale pipeline is designed to mirror three specialist simulators:
+
+* **PySB** – installable via `pip install pysb`. These models power the
+  receptor/cascade layer.
+* **The Virtual Brain (TVB)** – installable via `pip install tvb-library` for
+  development environments. TVB provides the regional circuit dynamics.
+* **PK-Sim** – part of the [Open Systems Pharmacology
+  Suite](https://www.open-systems-pharmacology.org/). PK-Sim ships as a desktop
+  application; install it separately if you plan to swap the PBPK surrogate for
+  the full engine.
+
+The test harness exercises lightweight surrogates so the project can run
+without these binaries, but production deployments should install the packages
+above to unlock the high-fidelity models.
 
 ### Use the simulator from another device on your network
 

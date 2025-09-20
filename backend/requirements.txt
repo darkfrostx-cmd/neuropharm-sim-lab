@@ -3,3 +3,9 @@ uvicorn[standard]==0.30.6
 numpy>=1.22.0
 scipy>=1.8.0
 pydantic>=2.1.1
+httpx>=0.27
+pysb>=1.15
+tvb-library>=2.8
+
+# External binary dependency (install separately):
+# PK-Sim – available via the Open Systems Pharmacology Suite
