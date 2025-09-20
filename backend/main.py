@@ -137,8 +137,7 @@ def simulate(inp: SimulationInput) -> SimulationOutput:
     5‑HT1B occupancy, modulates it with ADHD state and gut-bias flags,
     and then maps the result into overall "Drive" and "Apathy" scores.
 
-  
-Parameters
+    Parameters
     ----------
     inp : SimulationInput
         The payload specifying receptor occupancies and modifiers.
