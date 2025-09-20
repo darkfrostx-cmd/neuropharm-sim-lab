@@ -1,4 +1,4 @@
-e"""
+"""
 FastAPI backend for the neuropharm simulation lab.
 
 This service exposes a `/simulate` endpoint that accepts a JSON
@@ -105,8 +105,8 @@ def read_root():
 def health():
     return {"status": "ok", "version": "2025.09.05"}
 
-  @app.post("/simulate", response_model=SimulationOutput)
-        tdef simulate(inp: SimulationInput) -> SimulationOutput:
+@app.post("/simulate", response_model=SimulationOutput)
+def simulate(inp: SimulationInput) -> SimulationOutput:
     """Run a single simulation with the provided input.
 
     This function currently implements a highly simplified scoring
