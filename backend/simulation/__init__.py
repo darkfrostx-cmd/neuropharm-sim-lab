@@ -6,6 +6,7 @@ from .engine import (
     ReceptorEngagement,
     SimulationEngine,
 )
+from .kg_adapter import GraphBackedReceptorAdapter, ReceptorEvidenceBundle
 from .molecular import MolecularCascadeParams, MolecularCascadeResult, simulate_cascade
 from .pkpd import PKPDParameters, PKPDProfile, simulate_pkpd
 from .circuit import CircuitParameters, CircuitResponse, simulate_circuit_response
@@ -15,6 +16,8 @@ __all__ = [
     "EngineResult",
     "ReceptorEngagement",
     "SimulationEngine",
+    "GraphBackedReceptorAdapter",
+    "ReceptorEvidenceBundle",
     "MolecularCascadeParams",
     "MolecularCascadeResult",
     "simulate_cascade",
