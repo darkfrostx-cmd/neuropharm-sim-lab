@@ -182,5 +182,39 @@ def get_mechanism_factor(mech: str) -> float:
     -------
     float
         The multiplier applied to weights to reflect mechanism direction.
+
+    Raises
+    ------
+    ValueError
+        If ``mech`` is not one of the supported mechanisms.
     """
-    return MECHANISM_EFFECTS.get(mech, 0.0)
+
+    try:
+        return MECHANISM_EFFECTS[mech]
+    except KeyError as exc:  # pragma: no cover - defensive guard
+        raise ValueError(f"Unsupported mechanism '{mech}'") from exc
+
+
+def canonical_receptor_name(name: str) -> str:
+    """Return the canonical receptor identifier used by the engine."""
+
+    raw = name.strip().upper()
+    if raw in RECEPTORS:
+        return raw
+
+    compact = raw.replace(" ", "").replace("_", "")
+    if compact in RECEPTORS:
+        return compact
+
+    if compact.startswith("5HT"):
+        compact = "5-HT" + compact[3:]
+    compact = compact.replace("--", "-")
+    if compact in RECEPTORS:
+        return compact
+
+    compact_no_dash = compact.replace("-", "")
+    for canon in RECEPTORS:
+        if compact_no_dash == canon.replace("-", ""):
+            return canon
+
+    return raw

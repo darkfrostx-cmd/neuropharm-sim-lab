@@ -15,16 +15,31 @@ The API also exposes a root `/` endpoint for a basic health check.
 """
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Any
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import Any, Dict, Literal
 
-
-import numpy as np
-import os
 import json
+import os
+from pathlib import Path
 
-from .engine.receptors import get_receptor_weights, get_mechanism_factor, RECEPTORS
+from .engine.receptors import (
+    RECEPTORS,
+    canonical_receptor_name,
+    get_mechanism_factor,
+    get_receptor_weights,
+)
+
+
+Mechanism = Literal["agonist", "antagonist", "partial", "inverse"]
+
+
+REFS_PATH = Path(__file__).with_name("refs.json")
+try:
+    with REFS_PATH.open("r", encoding="utf-8") as f:
+        RECEPTOR_REFS: dict[str, list[dict[str, str]]] = json.load(f)
+except FileNotFoundError:
+    RECEPTOR_REFS = {}
 
 # -----------------------------------------------------------------------------
 # Pydantic models
@@ -41,8 +56,8 @@ class ReceptorSpec(BaseModel):
         Mechanism of the ligand ("agonist", "antagonist", "partial", or
         "inverse").  Future versions may support additional values.
     """
-    occ: float
-    mech: str
+    occ: float = Field(ge=0.0, le=1.0)
+    mech: Mechanism
 
 
 class SimulationInput(BaseModel):
@@ -135,60 +150,6 @@ Parameters
         and citations underpinning the mechanisms used.
     """
 
-    # ---------------------------------------------------------------------
-    # Helper functions
-    #
-    # To support various input naming conventions (e.g. "5HT2C" vs
-    # "5-HT2C"), normalise receptor names by inserting a dash after the
-    # "5" when missing.  This helper returns the canonical key used in
-    # the RECEPTORS mapping.
-    def canonical_receptor_name(name: str) -> str:
-        """Return the canonical receptor identifier used by the engine.
-
-        This helper accepts a variety of user supplied formats (mixed case,
-        missing hyphens, stray whitespace) and maps them onto the keys defined
-        in :data:`RECEPTORS`.  If a given string cannot be resolved it is
-        returned in upper case so the caller can safely treat it as unknown.
-        """
-
-        raw = name.strip().upper()
-        if raw in RECEPTORS:
-            return raw
-
-        compact = raw.replace(" ", "").replace("_", "")
-        if compact in RECEPTORS:
-            return compact
-
-        # Normalise variants such as "5HT2C" -> "5-HT2C" while preserving
-        # already hyphenated identifiers (avoids producing strings like
-        # "5--HT2C").
-        if compact.startswith("5HT"):
-            compact = "5-HT" + compact[3:]
-        compact = compact.replace("--", "-")
-        if compact in RECEPTORS:
-            return compact
-
-        # Fallback: compare against hyphen-stripped canonical identifiers.
-        compact_no_dash = compact.replace("-", "")
-        for canon in RECEPTORS:
-            if compact_no_dash == canon.replace("-", ""):
-                return canon
-
-        return raw
-
-    # Load receptor citations from refs.json.  This file should map
-    # canonical receptor names to lists of PubMed IDs or DOIs.
-    try:
-        with open(
-            __import__("os").path.join(
-                __import__("os").path.dirname(__file__), "refs.json"
-            ),
-            "r",
-        ) as f:
-            refs = json.load(f)
-    except FileNotFoundError:
-        refs = {}
-
     # Initialise metric contributions.  Baseline of 50 for each metric.
     metrics = [
         "drive",
@@ -208,7 +169,10 @@ Parameters
         if canon not in RECEPTORS:
             continue
         weights = get_receptor_weights(canon)
-        factor = get_mechanism_factor(spec.mech)
+        try:
+            factor = get_mechanism_factor(spec.mech)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         for m, w in weights.items():
             contrib[m] += w * spec.occ * factor
 
@@ -259,8 +223,8 @@ Parameters
     citations: Dict[str, list[Citation]] = {}
     for rec_name in inp.receptors.keys():
         canon = canonical_receptor_name(rec_name)
-        if canon in refs:
-            citations[canon] = [Citation(**ref) for ref in refs[canon]]
+        if canon in RECEPTOR_REFS:
+            citations[canon] = [Citation(**ref) for ref in RECEPTOR_REFS[canon]]
 
     details = {
         "raw_contributions": contrib,
