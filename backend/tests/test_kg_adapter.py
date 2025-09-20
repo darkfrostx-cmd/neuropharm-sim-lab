@@ -69,3 +69,41 @@ def test_adapter_cache_invalidated_on_new_edges():
 
     assert updated.evidence_count > initial.evidence_count
     assert "BindingDB" in updated.evidence_sources
+
+
+def test_adapter_picks_up_numeric_hgnc_identifiers():
+    store = InMemoryGraphStore()
+    service = GraphService(store=store)
+    adapter = GraphBackedReceptorAdapter(service)
+
+    nodes = [
+        Node(id="CHEMBL:25", name="Sertraline", category=BiolinkEntity.CHEMICAL_SUBSTANCE),
+        Node(id="HGNC:5290", name="HTR1A", category=BiolinkEntity.GENE),
+        Node(id="UBERON:0000955", name="Hippocampus", category=BiolinkEntity.BRAIN_REGION),
+    ]
+    edges = [
+        Edge(
+            subject="CHEMBL:25",
+            predicate=BiolinkPredicate.INTERACTS_WITH,
+            object="HGNC:5290",
+            confidence=0.82,
+            evidence=[Evidence(source="ChEMBL", reference="PMID:4", confidence=0.8)],
+            qualifiers={"affinity": 0.76},
+        ),
+        Edge(
+            subject="UBERON:0000955",
+            predicate=BiolinkPredicate.EXPRESSES,
+            object="HGNC:5290",
+            confidence=0.7,
+            evidence=[Evidence(source="AllenAtlas", reference="PMID:5", confidence=0.75)],
+            qualifiers={"expression": 0.65},
+        ),
+    ]
+    service.persist(nodes, edges)
+
+    bundle = adapter.derive("5-HT1A", fallback_weight=0.25, fallback_evidence=0.3)
+
+    assert bundle.kg_weight > 0.25
+    assert bundle.evidence_score is not None and bundle.evidence_score > 0.3
+    assert bundle.evidence_count >= 2
+    assert "ChEMBL" in bundle.evidence_sources

@@ -46,6 +46,11 @@ def test_normalize_identifier_known_prefixes(category, raw, expected) -> None:
     assert normalize_identifier(category, raw) == expected
 
 
+def test_normalize_identifier_preserves_http_identifiers() -> None:
+    url = "https://openalex.org/W1234567890"
+    assert normalize_identifier(BiolinkEntity.PUBLICATION, url) == url
+
+
 def test_edge_bel_export() -> None:
     drug = Node(id="CHEMBL:25", name="Sertraline", category=BiolinkEntity.CHEMICAL_SUBSTANCE)
     gene = Node(id="HGNC:5", name="SLC6A4", category=BiolinkEntity.GENE)

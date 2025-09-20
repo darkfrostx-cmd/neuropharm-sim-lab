@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 import math
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Mapping, Sequence
 
 from ..engine.receptors import canonical_receptor_name
 from ..graph.models import BiolinkPredicate, Edge
@@ -169,13 +170,83 @@ class GraphBackedReceptorAdapter:
 
     def _candidate_identifiers(self, canon: str) -> Sequence[str]:
         base = canon.strip()
-        candidates = [base, base.replace("-", ""), base.upper()]
-        compact = base.replace("-", "").upper()
-        if compact.startswith("5HT"):
-            suffix = compact[3:]
-            gene = f"HTR{suffix}"
-            candidates.extend({gene, f"HGNC:{gene}"})
-        return list(dict.fromkeys(filter(None, candidates)))
+        unique: "OrderedDict[str, None]" = OrderedDict()
+
+        def add(value: str | None) -> None:
+            if value:
+                unique.setdefault(value, None)
+
+        add(base)
+        add(base.replace("-", ""))
+        add(base.upper())
+        add(base.replace("-", "").upper())
+
+        symbol_candidates: set[str] = set()
+        upper_canon = base.upper()
+        if upper_canon.startswith("5-HT"):
+            suffix = upper_canon.replace("5-HT", "", 1).replace("-", "")
+            if suffix:
+                symbol_candidates.add(f"HTR{suffix}")
+
+        receptor_aliases = {
+            "5-HT3": ("HTR3A", "HTR3B"),
+            "MT2": ("MTNR1B", "MTNR1A"),
+        }
+        symbol_candidates.update(receptor_aliases.get(upper_canon, ()))
+
+        for symbol in symbol_candidates:
+            add(symbol)
+            add(f"HGNC:{symbol}")
+
+        store = self.graph_service.store
+
+        def _augment_from_node(node: Any) -> None:
+            add(getattr(node, "id", None))
+            for alias in getattr(node, "synonyms", []) or []:
+                if isinstance(alias, str):
+                    add(alias)
+            for xref in getattr(node, "xrefs", []) or []:
+                if isinstance(xref, str):
+                    add(xref)
+            attributes: Mapping[str, Any] | None = getattr(node, "attributes", None)
+            if isinstance(attributes, Mapping):
+                for value in attributes.values():
+                    if isinstance(value, str):
+                        add(value)
+                    elif isinstance(value, (list, tuple, set)):
+                        for item in value:
+                            if isinstance(item, str):
+                                add(item)
+
+        for candidate in list(unique.keys()):
+            try:
+                node = store.get_node(candidate)
+            except NotImplementedError:  # pragma: no cover - backend may not support lookup
+                node = None
+            except Exception:  # pragma: no cover - defensive guard
+                node = None
+            if node is not None:
+                _augment_from_node(node)
+
+        if symbol_candidates:
+            try:
+                nodes = store.all_nodes()
+            except (AttributeError, NotImplementedError):  # pragma: no cover - backend may not support enumeration
+                nodes = []
+            except Exception:  # pragma: no cover - defensive guard
+                nodes = []
+            lookup = {sym.upper() for sym in symbol_candidates}
+            for node in nodes:
+                name = getattr(node, "name", "")
+                aliases = {name.upper()} if isinstance(name, str) else set()
+                aliases.add(getattr(node, "id", "").upper())
+                for alias in getattr(node, "synonyms", []) or []:
+                    if isinstance(alias, str):
+                        aliases.add(alias.upper())
+                if aliases & lookup:
+                    _augment_from_node(node)
+
+        return list(unique.keys())
 
     def _collect_edges(self, identifiers: Sequence[str]) -> List[Edge]:
         seen: Dict[tuple[str, str, str], Edge] = {}
