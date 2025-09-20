@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import configure_services, router as api_router
+from .graph.ingest_runner import bootstrap_graph
 from .graph.service import GraphService
 from .simulation import GraphBackedReceptorAdapter, SimulationEngine
 
@@ -51,7 +52,11 @@ app.add_middleware(
 )
 
 
+AUTO_BOOTSTRAP = os.environ.get("GRAPH_AUTO_BOOTSTRAP", "1").lower() not in {"0", "false", "no"}
+
 graph_service = GraphService()
+if AUTO_BOOTSTRAP:
+    bootstrap_graph(graph_service)
 simulation_engine = SimulationEngine(time_step=1.0)
 receptor_adapter = GraphBackedReceptorAdapter(graph_service)
 
