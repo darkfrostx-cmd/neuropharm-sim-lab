@@ -1,48 +1,70 @@
-"""
-FastAPI backend for the neuropharm simulation lab.
+"""FastAPI backend for the neuropharm simulation lab.
 
-This service exposes a `/simulate` endpoint that accepts a JSON
-payload describing the current receptor occupancy, acute/chronic flags,
-phenotype modifiers (such as ADHD), gut-bias toggles, and other
-parameters. It returns computed scores for motivational drive, apathy
-blunting, and other high‑level readouts.  The current implementation
-provides a simple placeholder model to demonstrate the API and wiring;
-future work should extend this file with a full mechanistic model of
-serotonin, dopamine, glutamate, histamine, and other systems across
-brain regions.
+This service exposes a `/simulate` endpoint that accepts a JSON payload
+describing receptor occupancy, pharmacological mechanisms, and
+phenotype toggles.  It returns synthetic behavioural scores along with
+supporting citations so the frontend can display provenance.  The
+current implementation provides a simplified scoring model that can be
+swapped for a richer multiscale simulation in future work.
 
-The API also exposes a root `/` endpoint for a basic health check.
+The API also exposes `/` and `/health` endpoints for status checks.
 """
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Any
-from fastapi.middleware.cors import CORSMiddleware
+from __future__ import annotations
 
+from pathlib import Path
+from typing import Any, Dict, Iterable, List
 
-import numpy as np
-import os
 import json
+import os
 
-from .engine.receptors import get_receptor_weights, get_mechanism_factor, RECEPTORS
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, validator
+
+from .engine.receptors import (
+    RECEPTORS,
+    get_mechanism_factor,
+    get_receptor_weights,
+)
 
 # -----------------------------------------------------------------------------
 # Pydantic models
 # -----------------------------------------------------------------------------
 
-class ReceptorSpec(BaseModel):
-    """Specification for a single receptor.
+ALLOWED_MECHANISMS = {"agonist", "antagonist", "partial", "inverse"}
+API_VERSION = "2025.09.05"
+METRICS: Iterable[str] = (
+    "drive",
+    "apathy",
+    "motivation",
+    "cognitive_flexibility",
+    "anxiety",
+    "sleep_quality",
+)
+SCORE_KEY_MAP = {
+    "drive": "DriveInvigoration",
+    "apathy": "ApathyBlunting",
+    "motivation": "Motivation",
+    "cognitive_flexibility": "CognitiveFlexibility",
+    "anxiety": "Anxiety",
+    "sleep_quality": "SleepQuality",
+}
 
-    Attributes
-    ----------
-    occ : float
-        Fractional occupancy of the receptor (0.0–1.0).
-    mech : str
-        Mechanism of the ligand ("agonist", "antagonist", "partial", or
-        "inverse").  Future versions may support additional values.
-    """
-    occ: float
-    mech: str
+
+class ReceptorSpec(BaseModel):
+    """Specification for a single receptor input from the client."""
+
+    occ: float = Field(..., ge=0.0, le=1.0, description="Receptor occupancy (0.0–1.0).")
+    mech: str = Field(..., description="Ligand mechanism (agonist, antagonist, partial, inverse).")
+
+    @validator("mech")
+    def _normalise_mechanism(cls, value: str) -> str:
+        mechanism = value.strip().lower()
+        if mechanism not in ALLOWED_MECHANISMS:
+            allowed = ", ".join(sorted(ALLOWED_MECHANISMS))
+            raise ValueError(f"Unknown mechanism '{value}'. Choose one of: {allowed}.")
+        return mechanism
 
 
 class SimulationInput(BaseModel):
@@ -67,25 +89,24 @@ class Citation(BaseModel):
 
 
 class SimulationOutput(BaseModel):
-    """Return format from the simulation engine.
+    """Return format from the simulation engine."""
 
-    `scores` contains high‑level behavioural metrics normalised to 0–100.
-    `details` includes intermediate values (e.g. computed dopamine phasic
-    drive) that may be useful for debugging or future UI visualisations.
-    `citations` returns a list of PubMed IDs and/or DOIs supporting the
-    mechanisms involved in generating the result.
-    """
     scores: Dict[str, float]
     details: Dict[str, Any]
-    citations: Dict[str, list[Citation]]
+    citations: Dict[str, List[Citation]]
 
 
 # -----------------------------------------------------------------------------
 # Application
 # -----------------------------------------------------------------------------
 
-app = FastAPI(title="Neuropharm Simulation API",
-              description=("Simulate serotonergic, dopaminergic and other\n                           neurotransmitter systems under a variety of\n                           receptor manipulations.  See the README for\n                           details on the expected payload format."))
+app = FastAPI(
+    title="Neuropharm Simulation API",
+    description=(
+        "Simulate serotonergic, dopaminergic and related neurotransmitter systems under "
+        "a variety of receptor manipulations. See the project README for payload details."
+    ),
+)
 
 # Configure CORS
 origins = os.environ.get("CORS_ORIGINS", "https://darkfrostx-cmd.github.io").split(",")
@@ -98,20 +119,59 @@ app.add_middleware(
 )
 
 
+def _status_payload() -> Dict[str, str]:
+    return {"status": "ok", "version": API_VERSION}
+
+
 @app.get("/")
-def read_root():
-    """Health check endpoint.
+def read_root() -> Dict[str, str]:
+    """Basic health check for uptime monitors."""
 
-    Returns a basic status message so that clients can confirm the API is
-    running.
-    """
-    return {"status": "ok", "version": "2025.09.05"}
-
+    return _status_payload()
 
 
 @app.get("/health")
-def health():
-    return {"status": "ok", "version": "2025.09.05"}
+def health() -> Dict[str, str]:
+    """Compatibility endpoint mirroring the root status payload."""
+
+    return _status_payload()
+
+
+def canonical_receptor_name(name: str) -> str:
+    """Normalise receptor identifiers to the canonical form used in ``RECEPTORS``."""
+
+    raw = name.strip().upper()
+    if raw in RECEPTORS:
+        return raw
+
+    compact = raw.replace(" ", "").replace("_", "")
+    if compact in RECEPTORS:
+        return compact
+
+    if compact.startswith("5HT"):
+        compact = "5-HT" + compact[3:]
+    compact = compact.replace("--", "-")
+    if compact in RECEPTORS:
+        return compact
+
+    compact_no_dash = compact.replace("-", "")
+    for canon in RECEPTORS:
+        if compact_no_dash == canon.replace("-", ""):
+            return canon
+
+    return raw
+
+
+def _load_references() -> Dict[str, List[Dict[str, str]]]:
+    refs_path = Path(__file__).with_name("refs.json")
+    if not refs_path.exists():
+        return {}
+    with refs_path.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    return {key.upper(): value for key, value in data.items()}
+
+
+REFERENCES = _load_references()
 
 @app.post("/simulate", response_model=SimulationOutput)
 def simulate(inp: SimulationInput) -> SimulationOutput:
@@ -122,7 +182,7 @@ def simulate(inp: SimulationInput) -> SimulationOutput:
     5‑HT1B occupancy, modulates it with ADHD state and gut-bias flags,
     and then maps the result into overall "Drive" and "Apathy" scores.
 
-  
+
 Parameters
     ----------
     inp : SimulationInput
@@ -134,44 +194,7 @@ Parameters
         A dictionary containing high‑level scores, intermediate details
         and citations underpinning the mechanisms used.
     """
-
-    # ---------------------------------------------------------------------
-    # Helper functions
-    #
-    # To support various input naming conventions (e.g. "5HT2C" vs
-    # "5-HT2C"), normalise receptor names by inserting a dash after the
-    # "5" when missing.  This helper returns the canonical key used in
-    # the RECEPTORS mapping.
-    def canonical_receptor_name(name: str) -> str:
-        if name in RECEPTORS:
-            return name
-        # Normalise names like "5HT2C" → "5-HT2C" and "5ht1a" → "5-HT1A"
-        name_upper = name.upper().replace("HT", "-HT")
-        return name_upper
-
-    # Load receptor citations from refs.json.  This file should map
-    # canonical receptor names to lists of PubMed IDs or DOIs.
-    try:
-        with open(
-            __import__("os").path.join(
-                __import__("os").path.dirname(__file__), "refs.json"
-            ),
-            "r",
-        ) as f:
-            refs = json.load(f)
-    except FileNotFoundError:
-        refs = {}
-
-    # Initialise metric contributions.  Baseline of 50 for each metric.
-    metrics = [
-        "drive",
-        "apathy",
-        "motivation",
-        "cognitive_flexibility",
-        "anxiety",
-        "sleep_quality",
-    ]
-    contrib: Dict[str, float] = {m: 0.0 for m in metrics}
+    contrib: Dict[str, float] = {metric: 0.0 for metric in METRICS}
 
     # Accumulate contributions from each receptor in the input.  For
     # unknown receptors, silently ignore.  Mechanism factor scales the
@@ -193,17 +216,17 @@ Parameters
         contrib["drive"] -= 0.3
         contrib["motivation"] -= 0.2
     if inp.gut_bias:
-        for m in metrics:
+        for m in METRICS:
             # If contribution is negative, reduce its magnitude by 10%
             if contrib[m] < 0:
                 contrib[m] *= 0.9
     if inp.acute_1a:
-        for m in metrics:
+        for m in METRICS:
             contrib[m] *= 0.75
     # PVT gating weight scales contributions from 5-HT1B (if present);
     # approximate by scaling global contributions by (1 - pvt_weight*0.2)
     contrib_scale = 1.0 - (inp.pvt_weight * 0.2)
-    for m in metrics:
+    for m in METRICS:
         contrib[m] *= contrib_scale
 
     # Convert contributions to scores.  Baseline is 50; each unit of
@@ -211,29 +234,22 @@ Parameters
     # 100.  Note: for apathy, higher contribution increases apathy; for
     # other metrics, contributions add directly.
     scores: Dict[str, float] = {}
-    for m in metrics:
+    for metric in METRICS:
         base = 50.0
-        change = 20.0 * contrib[m]
-        val = base + change
-        # Invert apathy into ApathyBlunting (higher apathy = lower score)
-        if m == "apathy":
-            val = 100.0 - val
-        scores_name = {
-            "drive": "DriveInvigoration",
-            "apathy": "ApathyBlunting",
-            "motivation": "Motivation",
-            "cognitive_flexibility": "CognitiveFlexibility",
-            "anxiety": "Anxiety",
-            "sleep_quality": "SleepQuality",
-        }[m]
-        scores[scores_name] = max(0.0, min(100.0, val))
+        change = 20.0 * contrib[metric]
+        value = base + change
+        if metric == "apathy":
+            value = 100.0 - value
+        scores_name = SCORE_KEY_MAP[metric]
+        scores[scores_name] = max(0.0, min(100.0, value))
 
     # Build citations dictionary: gather references for each receptor used.
-    citations: Dict[str, list[Citation]] = {}
+    citations: Dict[str, List[Citation]] = {}
     for rec_name in inp.receptors.keys():
         canon = canonical_receptor_name(rec_name)
-        if canon in refs:
-            citations[canon] = [Citation(**ref) for ref in refs[canon]]
+        refs = REFERENCES.get(canon)
+        if refs:
+            citations[canon] = [Citation(**ref) for ref in refs]
 
     details = {
         "raw_contributions": contrib,
