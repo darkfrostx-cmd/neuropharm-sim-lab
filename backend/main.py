@@ -1,121 +1,46 @@
-"""
-FastAPI backend for the neuropharm simulation lab.
+"""FastAPI application entrypoint for the Neuropharm Simulation Lab."""
 
-This service exposes a `/simulate` endpoint that accepts a JSON
-payload describing the current receptor occupancy, acute/chronic flags,
-phenotype modifiers (such as ADHD), gut-bias toggles, and other
-parameters. It returns computed scores for motivational drive, apathy
-blunting, and other high‑level readouts.  The current implementation
-provides a simple placeholder model to demonstrate the API and wiring;
-future work should extend this file with a full mechanistic model of
-serotonin, dopamine, glutamate, histamine, and other systems across
-brain regions.
-
-The API also exposes a root `/` endpoint for a basic health check.
-"""
-
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import Any, Dict, Literal
+from __future__ import annotations
 
 import json
 import os
 from pathlib import Path
 
-from .engine.receptors import (
-    RECEPTORS,
-    canonical_receptor_name,
-    get_receptor_weights,
-)
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from .api import configure_services, router as api_router
 from .graph.service import GraphService
-from .simulation import (
-    EngineRequest,
-    ReceptorEngagement,
-    SimulationEngine,
-    GraphBackedReceptorAdapter,
-)
+from .simulation import GraphBackedReceptorAdapter, SimulationEngine
 
 
-Mechanism = Literal["agonist", "antagonist", "partial", "inverse"]
+API_DESCRIPTION = """
+The Neuropharm Simulation API couples a mechanistic SSRI simulation engine
+with a knowledge graph describing receptor level evidence.  The service
+exposes endpoints to:
+
+* query evidence supporting edges in the knowledge graph (`/evidence/search`)
+* expand the graph around a node (`/graph/expand`)
+* derive receptor effects used by the simulator (`/predict/effects`)
+* run a multi-layer pharmacology simulation (`/simulate`)
+* explain receptor inputs by surfacing supporting evidence (`/explain`)
+* highlight gaps between focus nodes (`/gaps`)
+
+Use the OpenAPI schema for complete request/response examples.
+"""
 
 
 REFS_PATH = Path(__file__).with_name("refs.json")
 try:
-    with REFS_PATH.open("r", encoding="utf-8") as f:
-        RECEPTOR_REFS: dict[str, list[dict[str, str]]] = json.load(f)
+    with REFS_PATH.open("r", encoding="utf-8") as handle:
+        RECEPTOR_REFS: dict[str, list[dict[str, str]]] = json.load(handle)
 except FileNotFoundError:
     RECEPTOR_REFS = {}
 
-ENGINE = SimulationEngine(time_step=1.0)
-GRAPH_SERVICE = GraphService()
-KG_ADAPTER = GraphBackedReceptorAdapter(GRAPH_SERVICE)
 
-# -----------------------------------------------------------------------------
-# Pydantic models
-# -----------------------------------------------------------------------------
-
-class ReceptorSpec(BaseModel):
-    """Specification for a single receptor.
-
-    Attributes
-    ----------
-    occ : float
-        Fractional occupancy of the receptor (0.0–1.0).
-    mech : str
-        Mechanism of the ligand ("agonist", "antagonist", "partial", or
-        "inverse").  Future versions may support additional values.
-    """
-    occ: float = Field(ge=0.0, le=1.0)
-    mech: Mechanism
+app = FastAPI(title="Neuropharm Simulation API", description=API_DESCRIPTION)
 
 
-class SimulationInput(BaseModel):
-    """Input payload for the simulation.
-
-    Fields are deliberately flexible to allow future extensions
-    (additional neurotransmitters, receptor subtypes, etc.).
-    """
-    receptors: Dict[str, ReceptorSpec]
-    acute_1a: bool = False
-    dosing: Literal["acute", "chronic"] = "chronic"
-    adhd: bool = False
-    gut_bias: bool = False
-    pvt_weight: float = 0.5
-
-
-class Citation(BaseModel):
-    """Reference supporting a mechanism or receptor effect."""
-
-    title: str
-    pmid: str
-    doi: str
-
-
-class SimulationOutput(BaseModel):
-    """Return format from the simulation engine.
-
-    `scores` contains high‑level behavioural metrics normalised to 0–100.
-    `details` includes intermediate values (e.g. computed dopamine phasic
-    drive) that may be useful for debugging or future UI visualisations.
-    `citations` returns a list of PubMed IDs and/or DOIs supporting the
-    mechanisms involved in generating the result.  `confidence` provides a
-    0–1 certainty estimate for each behavioural score.
-    """
-    scores: Dict[str, float]
-    details: Dict[str, Any]
-    citations: Dict[str, list[Citation]]
-    confidence: Dict[str, float]
-
-
-# -----------------------------------------------------------------------------
-# Application
-# -----------------------------------------------------------------------------
-
-app = FastAPI(title="Neuropharm Simulation API",
-              description=("Simulate serotonergic, dopaminergic and other\n                           neurotransmitter systems under a variety of\n                           receptor manipulations.  See the README for\n                           details on the expected payload format."))
-
-# Configure CORS
 origins = os.environ.get("CORS_ORIGINS", "https://darkfrostx-cmd.github.io").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -126,94 +51,33 @@ app.add_middleware(
 )
 
 
+graph_service = GraphService()
+simulation_engine = SimulationEngine(time_step=1.0)
+receptor_adapter = GraphBackedReceptorAdapter(graph_service)
+
+configure_services(
+    graph_service=graph_service,
+    simulation_engine=simulation_engine,
+    receptor_adapter=receptor_adapter,
+    receptor_references=RECEPTOR_REFS,
+)
+
+
+app.include_router(api_router)
+
+
 @app.get("/")
-def read_root():
-    """Health check endpoint.
+def read_root() -> dict[str, str]:
+    """Basic health check used by the frontend shell."""
 
-    Returns a basic status message so that clients can confirm the API is
-    running.
-    """
     return {"status": "ok", "version": "2025.09.05"}
-
 
 
 @app.get("/health")
-def health():
+def health() -> dict[str, str]:
+    """Alias of :func:`read_root` for compatibility with uptime monitors."""
+
     return {"status": "ok", "version": "2025.09.05"}
 
-@app.post("/simulate", response_model=SimulationOutput)
-def simulate(inp: SimulationInput) -> SimulationOutput:
-    """Run a single simulation with the provided input."""
 
-    regimen: Literal["acute", "chronic"] = inp.dosing
-    if inp.acute_1a:
-        regimen = "acute"
-
-    engagements: Dict[str, ReceptorEngagement] = {}
-    receptor_context: Dict[str, Dict[str, Any]] = {}
-    for rec_name, spec in inp.receptors.items():
-        canon = canonical_receptor_name(rec_name)
-        if canon not in RECEPTORS:
-            continue
-        weights = get_receptor_weights(canon)
-        if weights:
-            fallback_weight = sum(abs(w) for w in weights.values()) / len(weights)
-        else:
-            fallback_weight = 0.25
-        fallback_evidence = min(0.95, 0.45 + 0.1 * len(RECEPTOR_REFS.get(canon, [])))
-        bundle = KG_ADAPTER.derive(
-            canon,
-            fallback_weight=fallback_weight,
-            fallback_evidence=fallback_evidence,
-        )
-        engagements[canon] = ReceptorEngagement(
-            name=canon,
-            occupancy=spec.occ,
-            mechanism=spec.mech,
-            kg_weight=bundle.kg_weight,
-            evidence=bundle.evidence_score,
-            affinity=bundle.affinity,
-            expression=bundle.expression,
-            evidence_sources=bundle.evidence_sources,
-        )
-        receptor_context[canon] = {
-            "kg_weight": bundle.kg_weight,
-            "evidence": bundle.evidence_score,
-            "affinity": bundle.affinity,
-            "expression": bundle.expression,
-            "sources": list(bundle.evidence_sources),
-            "evidence_items": bundle.evidence_count,
-        }
-
-    engine_request = EngineRequest(
-        receptors=engagements,
-        regimen=regimen,
-        adhd=inp.adhd,
-        gut_bias=inp.gut_bias,
-        pvt_weight=inp.pvt_weight,
-    )
-
-    try:
-        result = ENGINE.run(engine_request)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    citations: Dict[str, list[Citation]] = {}
-    for rec_name in inp.receptors.keys():
-        canon = canonical_receptor_name(rec_name)
-        if canon in RECEPTOR_REFS:
-            citations[canon] = [Citation(**ref) for ref in RECEPTOR_REFS[canon]]
-
-    details = {
-        "timepoints": result.timepoints,
-        "trajectories": result.trajectories,
-        "modules": result.module_summaries,
-        "receptor_context": receptor_context,
-    }
-
-    return SimulationOutput(
-        scores=result.scores,
-        details=details,
-        citations=citations,
-        confidence=result.confidence,
-    )
+__all__ = ["app"]

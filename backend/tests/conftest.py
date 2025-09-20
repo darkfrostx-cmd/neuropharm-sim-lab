@@ -14,10 +14,10 @@ from backend.graph.models import (
     Evidence,
     Node,
 )
+from backend.api import routes as api_routes
 from backend.graph.persistence import InMemoryGraphStore
 from backend.graph.service import GraphService
 from backend.simulation.kg_adapter import GraphBackedReceptorAdapter
-import backend.main as backend_main
 
 
 @pytest.fixture()
@@ -28,8 +28,8 @@ def serotonin_graph(monkeypatch: pytest.MonkeyPatch) -> tuple[GraphService, Grap
     service = GraphService(store=store)
     adapter = GraphBackedReceptorAdapter(service)
 
-    monkeypatch.setattr(backend_main, "GRAPH_SERVICE", service)
-    monkeypatch.setattr(backend_main, "KG_ADAPTER", adapter)
+    api_routes.services.graph_service = service
+    api_routes.services.receptor_adapter = adapter
 
     nodes = [
         Node(id="CHEMBL:25", name="Sertraline", category=BiolinkEntity.CHEMICAL_SUBSTANCE),
