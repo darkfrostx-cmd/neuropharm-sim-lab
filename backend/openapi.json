@@ -1,0 +1,1267 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Neuropharm Simulation API",
+    "description": "Simulate serotonergic, dopaminergic and other neurotransmitter systems under diverse receptor manipulations, inspect graph evidence, and generate mechanism-aware explanations.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/evidence/search": {
+      "post": {
+        "summary": "Search Evidence",
+        "operationId": "search_evidence_evidence_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvidenceSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedEvidenceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/graph/expand": {
+      "post": {
+        "summary": "Expand Graph",
+        "operationId": "expand_graph_graph_expand_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphExpandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphFragmentResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/predict/effects": {
+      "post": {
+        "summary": "Predict Effects",
+        "operationId": "predict_effects_predict_effects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PredictEffectsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictEffectsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/simulate": {
+      "post": {
+        "summary": "Simulate",
+        "operationId": "simulate_simulate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/explain": {
+      "post": {
+        "summary": "Explain",
+        "operationId": "explain_explain_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExplainRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplainResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gaps": {
+      "post": {
+        "summary": "Graph Gaps",
+        "operationId": "graph_gaps_gaps_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphGapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphGapResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Read Root",
+        "description": "Health check endpoint.",
+        "operationId": "read_root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Read Root  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "description": "Alias for :func:`read_root` used by uptime monitors.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BiolinkEntity": {
+        "type": "string",
+        "enum": [
+          "biolink:NamedThing",
+          "biolink:Gene",
+          "biolink:ChemicalSubstance",
+          "biolink:Disease",
+          "biolink:AnatomicalEntity",
+          "biolink:PhenotypicFeature",
+          "biolink:Publication",
+          "biolink:Cell",
+          "biolink:BrainRegion",
+          "biolink:Pathway",
+          "biolink:Person"
+        ],
+        "title": "BiolinkEntity",
+        "description": "Supported Biolink categories."
+      },
+      "BiolinkPredicate": {
+        "type": "string",
+        "enum": [
+          "biolink:related_to",
+          "biolink:treats",
+          "biolink:affects",
+          "biolink:expresses",
+          "biolink:interacts_with",
+          "biolink:contributes_to",
+          "biolink:coexpressed_with",
+          "biolink:located_in",
+          "biolink:associated_with",
+          "biolink:part_of"
+        ],
+        "title": "BiolinkPredicate",
+        "description": "Subset of Biolink predicates used by the ingestion jobs."
+      },
+      "Citation": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "pmid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pmid"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "Citation",
+        "description": "Reference supporting a mechanism or receptor effect."
+      },
+      "EdgeSummary": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "predicate": {
+            "$ref": "#/components/schemas/BiolinkPredicate"
+          },
+          "object": {
+            "type": "string",
+            "title": "Object"
+          },
+          "relation": {
+            "type": "string",
+            "title": "Relation"
+          },
+          "knowledge_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Level"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "publications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Publications"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceDetail"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "qualifiers": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Qualifiers"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject",
+          "predicate",
+          "object",
+          "relation"
+        ],
+        "title": "EdgeSummary",
+        "description": "Serializable representation of an edge and its evidence."
+      },
+      "EvidenceDetail": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "uncertainty": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uncertainty"
+          },
+          "annotations": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Annotations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "EvidenceDetail",
+        "description": "Evidence record associated with an edge."
+      },
+      "EvidenceSearchRequest": {
+        "properties": {
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject"
+          },
+          "predicate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BiolinkPredicate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "object": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object"
+          },
+          "page": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Page",
+            "description": "1-indexed page number",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "maximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Page Size",
+            "description": "Maximum number of records to return per page (<=100).",
+            "default": 25
+          }
+        },
+        "type": "object",
+        "title": "EvidenceSearchRequest",
+        "description": "Filter and pagination payload for evidence search."
+      },
+      "ExplainRequest": {
+        "properties": {
+          "receptors": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReceptorSpec"
+            },
+            "type": "object",
+            "title": "Receptors"
+          },
+          "acute_1a": {
+            "type": "boolean",
+            "title": "Acute 1A",
+            "default": false
+          },
+          "dosing": {
+            "type": "string",
+            "enum": [
+              "acute",
+              "chronic"
+            ],
+            "title": "Dosing",
+            "default": "chronic"
+          },
+          "adhd": {
+            "type": "boolean",
+            "title": "Adhd",
+            "default": false
+          },
+          "gut_bias": {
+            "type": "boolean",
+            "title": "Gut Bias",
+            "default": false
+          },
+          "pvt_weight": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pvt Weight",
+            "default": 0.5
+          },
+          "metric": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric",
+            "description": "Optional metric to focus on (e.g. 'Motivation' or 'DriveInvigoration')."
+          }
+        },
+        "type": "object",
+        "required": [
+          "receptors"
+        ],
+        "title": "ExplainRequest",
+        "description": "Request body for /explain."
+      },
+      "ExplainResponse": {
+        "properties": {
+          "metric": {
+            "type": "string",
+            "title": "Metric"
+          },
+          "predicted_score": {
+            "type": "number",
+            "title": "Predicted Score"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "drivers": {
+            "items": {
+              "$ref": "#/components/schemas/ExplanationDriver"
+            },
+            "type": "array",
+            "title": "Drivers"
+          },
+          "uncertainty": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Uncertainty"
+          },
+          "modifiers": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Modifiers"
+          },
+          "ignored_targets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ignored Targets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metric",
+          "predicted_score",
+          "summary",
+          "uncertainty"
+        ],
+        "title": "ExplainResponse",
+        "description": "Response payload for /explain."
+      },
+      "ExplanationDriver": {
+        "properties": {
+          "receptor": {
+            "type": "string",
+            "title": "Receptor"
+          },
+          "canonical_receptor": {
+            "type": "string",
+            "title": "Canonical Receptor"
+          },
+          "mechanism": {
+            "type": "string",
+            "enum": [
+              "agonist",
+              "antagonist",
+              "partial",
+              "inverse"
+            ],
+            "title": "Mechanism"
+          },
+          "score_delta": {
+            "type": "number",
+            "title": "Score Delta"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "type": "array",
+            "title": "Citations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "receptor",
+          "canonical_receptor",
+          "mechanism",
+          "score_delta",
+          "confidence"
+        ],
+        "title": "ExplanationDriver",
+        "description": "Driver entry surfaced by the /explain endpoint."
+      },
+      "GraphExpandRequest": {
+        "properties": {
+          "node_id": {
+            "type": "string",
+            "title": "Node Id",
+            "description": "Seed node identifier (CURIE or URI)."
+          },
+          "depth": {
+            "type": "integer",
+            "maximum": 3.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Depth",
+            "description": "Traversal depth (max 3).",
+            "default": 1
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 200.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Limit",
+            "description": "Maximum number of nodes to return.",
+            "default": 25
+          }
+        },
+        "type": "object",
+        "required": [
+          "node_id"
+        ],
+        "title": "GraphExpandRequest",
+        "description": "Payload for expanding a neighbourhood around a node."
+      },
+      "GraphFragmentResponse": {
+        "properties": {
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeSummary"
+            },
+            "type": "array",
+            "title": "Nodes"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeSummary"
+            },
+            "type": "array",
+            "title": "Edges"
+          }
+        },
+        "type": "object",
+        "title": "GraphFragmentResponse",
+        "description": "Response containing expanded graph fragment."
+      },
+      "GraphGapItem": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "object": {
+            "type": "string",
+            "title": "Object"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject",
+          "object",
+          "reason"
+        ],
+        "title": "GraphGapItem",
+        "description": "Single gap description."
+      },
+      "GraphGapRequest": {
+        "properties": {
+          "focus": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Focus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "focus"
+        ],
+        "title": "GraphGapRequest",
+        "description": "Payload describing the focus nodes for /gaps."
+      },
+      "GraphGapResponse": {
+        "properties": {
+          "gaps": {
+            "items": {
+              "$ref": "#/components/schemas/GraphGapItem"
+            },
+            "type": "array",
+            "title": "Gaps"
+          }
+        },
+        "type": "object",
+        "title": "GraphGapResponse",
+        "description": "Response payload for /gaps."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "NodeSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category": {
+            "$ref": "#/components/schemas/BiolinkEntity",
+            "default": "biolink:NamedThing"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "provided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provided By"
+          },
+          "synonyms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Synonyms"
+          },
+          "xrefs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Xrefs"
+          },
+          "attributes": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Attributes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "NodeSummary",
+        "description": "Serializable representation of a graph node."
+      },
+      "PaginatedEvidenceResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeSummary"
+            },
+            "type": "array",
+            "title": "Results"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "page",
+          "page_size",
+          "total"
+        ],
+        "title": "PaginatedEvidenceResponse",
+        "description": "Paginated evidence query response."
+      },
+      "PredictEffectsRequest": {
+        "properties": {
+          "receptors": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReceptorSpec"
+            },
+            "type": "object",
+            "title": "Receptors"
+          },
+          "acute_1a": {
+            "type": "boolean",
+            "title": "Acute 1A",
+            "default": false
+          },
+          "dosing": {
+            "type": "string",
+            "enum": [
+              "acute",
+              "chronic"
+            ],
+            "title": "Dosing",
+            "default": "chronic"
+          },
+          "adhd": {
+            "type": "boolean",
+            "title": "Adhd",
+            "default": false
+          },
+          "gut_bias": {
+            "type": "boolean",
+            "title": "Gut Bias",
+            "default": false
+          },
+          "pvt_weight": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pvt Weight",
+            "default": 0.5
+          }
+        },
+        "type": "object",
+        "required": [
+          "receptors"
+        ],
+        "title": "PredictEffectsRequest",
+        "description": "Request body for /predict/effects."
+      },
+      "PredictEffectsResponse": {
+        "properties": {
+          "scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Scores"
+          },
+          "contributions": {
+            "items": {
+              "$ref": "#/components/schemas/ReceptorContribution"
+            },
+            "type": "array",
+            "title": "Contributions"
+          },
+          "uncertainty": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Uncertainty"
+          },
+          "modifiers": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Modifiers"
+          },
+          "ignored_targets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ignored Targets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scores",
+          "uncertainty"
+        ],
+        "title": "PredictEffectsResponse",
+        "description": "Response payload for /predict/effects."
+      },
+      "ReceptorContribution": {
+        "properties": {
+          "receptor": {
+            "type": "string",
+            "title": "Receptor"
+          },
+          "canonical_receptor": {
+            "type": "string",
+            "title": "Canonical Receptor"
+          },
+          "mechanism": {
+            "type": "string",
+            "enum": [
+              "agonist",
+              "antagonist",
+              "partial",
+              "inverse"
+            ],
+            "title": "Mechanism"
+          },
+          "occupancy": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Occupancy"
+          },
+          "score_delta": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Score Delta",
+            "description": "Score delta contributions in behavioural metric units."
+          },
+          "evidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Evidence"
+          },
+          "uncertainty": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Uncertainty"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/Citation"
+            },
+            "type": "array",
+            "title": "Citations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "receptor",
+          "canonical_receptor",
+          "mechanism",
+          "occupancy",
+          "evidence",
+          "uncertainty"
+        ],
+        "title": "ReceptorContribution",
+        "description": "Per-receptor contribution summary returned by /predict/effects."
+      },
+      "ReceptorSpec": {
+        "properties": {
+          "occ": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Occ",
+            "description": "Fractional receptor occupancy (0-1)."
+          },
+          "mech": {
+            "type": "string",
+            "enum": [
+              "agonist",
+              "antagonist",
+              "partial",
+              "inverse"
+            ],
+            "title": "Mech"
+          }
+        },
+        "type": "object",
+        "required": [
+          "occ",
+          "mech"
+        ],
+        "title": "ReceptorSpec",
+        "description": "Specification for a single receptor in prediction/simulation payloads."
+      },
+      "SimulationDetails": {
+        "properties": {
+          "timepoints": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Timepoints"
+          },
+          "trajectories": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Trajectories"
+          },
+          "modules": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Modules"
+          },
+          "ignored_receptors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Ignored Receptors"
+          }
+        },
+        "type": "object",
+        "title": "SimulationDetails",
+        "description": "Structured details returned by the simulation engine."
+      },
+      "SimulationRequest": {
+        "properties": {
+          "receptors": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ReceptorSpec"
+            },
+            "type": "object",
+            "title": "Receptors"
+          },
+          "acute_1a": {
+            "type": "boolean",
+            "title": "Acute 1A",
+            "default": false
+          },
+          "dosing": {
+            "type": "string",
+            "enum": [
+              "acute",
+              "chronic"
+            ],
+            "title": "Dosing",
+            "default": "chronic"
+          },
+          "adhd": {
+            "type": "boolean",
+            "title": "Adhd",
+            "default": false
+          },
+          "gut_bias": {
+            "type": "boolean",
+            "title": "Gut Bias",
+            "default": false
+          },
+          "pvt_weight": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Pvt Weight",
+            "default": 0.5
+          }
+        },
+        "type": "object",
+        "required": [
+          "receptors"
+        ],
+        "title": "SimulationRequest",
+        "description": "Request body for /simulate."
+      },
+      "SimulationResponse": {
+        "properties": {
+          "scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Scores"
+          },
+          "details": {
+            "$ref": "#/components/schemas/SimulationDetails"
+          },
+          "citations": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/Citation"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Citations"
+          },
+          "confidence": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Confidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "scores",
+          "details",
+          "confidence"
+        ],
+        "title": "SimulationResponse",
+        "description": "Response payload for /simulate."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
