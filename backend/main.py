@@ -143,11 +143,38 @@ Parameters
     # "5" when missing.  This helper returns the canonical key used in
     # the RECEPTORS mapping.
     def canonical_receptor_name(name: str) -> str:
-        if name in RECEPTORS:
-            return name
-        # Normalise names like "5HT2C" → "5-HT2C" and "5ht1a" → "5-HT1A"
-        name_upper = name.upper().replace("HT", "-HT")
-        return name_upper
+        """Return the canonical receptor identifier used by the engine.
+
+        This helper accepts a variety of user supplied formats (mixed case,
+        missing hyphens, stray whitespace) and maps them onto the keys defined
+        in :data:`RECEPTORS`.  If a given string cannot be resolved it is
+        returned in upper case so the caller can safely treat it as unknown.
+        """
+
+        raw = name.strip().upper()
+        if raw in RECEPTORS:
+            return raw
+
+        compact = raw.replace(" ", "").replace("_", "")
+        if compact in RECEPTORS:
+            return compact
+
+        # Normalise variants such as "5HT2C" -> "5-HT2C" while preserving
+        # already hyphenated identifiers (avoids producing strings like
+        # "5--HT2C").
+        if compact.startswith("5HT"):
+            compact = "5-HT" + compact[3:]
+        compact = compact.replace("--", "-")
+        if compact in RECEPTORS:
+            return compact
+
+        # Fallback: compare against hyphen-stripped canonical identifiers.
+        compact_no_dash = compact.replace("-", "")
+        for canon in RECEPTORS:
+            if compact_no_dash == canon.replace("-", ""):
+                return canon
+
+        return raw
 
     # Load receptor citations from refs.json.  This file should map
     # canonical receptor names to lists of PubMed IDs or DOIs.
