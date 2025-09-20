@@ -1,0 +1,27 @@
+.gap-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.65rem;
+}
+
+.gap-list li {
+  background: rgba(18, 28, 50, 0.9);
+  border-radius: 12px;
+  border: 1px solid rgba(94, 124, 196, 0.35);
+  padding: 0.6rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.gap-pair {
+  font-weight: 600;
+}
+
+.gap-reason {
+  font-size: 0.8rem;
+  opacity: 0.65;
+}
+

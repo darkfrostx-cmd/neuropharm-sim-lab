@@ -1,0 +1,5 @@
+# Simulation backends that require platform-specific dependencies.
+# Install selectively when you need the PySB/OSP Suite/TVB integrations.
+pysb>=1.13.0
+ospsuite>=11.0.0
+tvb-library>=2.8.0

@@ -14,11 +14,22 @@ jobs:
       # Check out the repository so we have access to the source files
       - uses: actions/checkout@v4
 
-      # Deploy the static frontend directory straight to GitHub Pages.  We don't run any build
-      # steps because the frontend is pure HTML/JS/CSS.  The peaceiris GH Pages action will
-      # copy everything under `frontend` into the gh-pages branch and serve it from there.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
       - name: Deploy static site
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: frontend
+          publish_dir: frontend/dist

@@ -1,0 +1,98 @@
+.provenance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.provenance-card {
+  background: rgba(17, 29, 52, 0.95);
+  border-radius: 16px;
+  border: 1px solid rgba(84, 110, 180, 0.4);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.provenance-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.provenance-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.provenance-card dl {
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.provenance-card dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.6;
+}
+
+.provenance-card dd {
+  margin: 0;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.secondary {
+  margin-top: 1.5rem;
+}
+
+.explanation-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.explanation-card {
+  background: rgba(20, 32, 60, 0.9);
+  border: 1px solid rgba(94, 124, 196, 0.4);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.explanation-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.explanation-card h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.edge-meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(226, 232, 255, 0.7);
+}
+
+.edge-context {
+  margin: 0;
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.edge-direction {
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  margin: 0;
+}
