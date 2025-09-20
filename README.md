@@ -112,6 +112,34 @@ During development the default in-memory store keeps the graph transient. For a
 hosted deployment point the configuration at a managed AuraDB or ArangoDB
 instance; both offer free-tier databases adequate for nightly refresh runs.
 
+When targeting **Neo4j** deployments:
+
+- Create a uniqueness constraint or btree index on the node ``id`` property so
+  the Cypher lookups used by the API remain O(log n):
+
+  ```cypher
+  CREATE BTREE INDEX graph_node_id IF NOT EXISTS FOR (n) ON (n.id)
+  ```
+
+- Relationships are written as ``:REL`` edges with ``subject``, ``object`` and
+  ``predicate`` properties. Ensure that existing data conforms to this shape or
+  run a one-off migration before switching the backend.
+- AuraDB Free tiers comfortably handle the evidence volume used in the tests
+  (≈50k relationships) but enforce connection limits of 3 concurrent sessions.
+  Batch ingestion jobs should therefore reuse a small driver pool.
+
+For **ArangoDB** deployments:
+
+- Pre-create a document collection named ``nodes`` and an edge collection named
+  ``edges``. The ingestion jobs insert documents with ``_key`` matching the node
+  CURIE and edges with ``_from``/``_to`` pointing at ``nodes/<curie>``.
+- Add persistent indexes on ``edges.subject``, ``edges.object`` and
+  ``edges.predicate`` to keep the evidence and gap queries responsive on
+  datasets larger than a few hundred thousand edges.
+- The managed Oasis free tier permits up to 1 GB of storage and 40 concurrent
+  AQL operations; plan ingestion batches accordingly or upgrade the service
+  class before loading full public releases of the graph.
+
 ## Running locally
 
 Follow this numbered quick-start to see the simulator running on your own

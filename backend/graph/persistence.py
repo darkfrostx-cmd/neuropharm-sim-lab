@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Sequence
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Sequence
 
 try:  # pragma: no cover - optional dependency
     from neo4j import GraphDatabase
@@ -15,7 +16,149 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - optional dependency
     ArangoClient = None  # type: ignore
 
-from .models import BiolinkPredicate, Edge, Evidence, Node, merge_evidence
+from .models import BiolinkEntity, BiolinkPredicate, Edge, Evidence, Node, merge_evidence
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _as_dict(entity: Any) -> Dict[str, Any]:
+    if entity is None:
+        return {}
+    if isinstance(entity, dict):
+        return dict(entity)
+    try:
+        return dict(entity)
+    except Exception:  # pragma: no cover - defensive fallback
+        data: Dict[str, Any] = {}
+        if hasattr(entity, "keys"):
+            for key in entity.keys():  # type: ignore[attr-defined]
+                data[key] = entity[key]
+        return data
+
+
+def _coerce_str_list(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None]
+    if value is None:
+        return []
+    return [str(value)]
+
+
+def _coerce_dict(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if hasattr(value, "items"):
+        return dict(value.items())  # type: ignore[call-arg]
+    return {}
+
+
+def _parse_category(raw: Any) -> BiolinkEntity:
+    if isinstance(raw, BiolinkEntity):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return BiolinkEntity(raw)
+        except ValueError:  # pragma: no cover - unexpected category
+            pass
+    return BiolinkEntity.NAMED_THING
+
+
+def _parse_predicate(raw: Any) -> BiolinkPredicate:
+    if isinstance(raw, BiolinkPredicate):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return BiolinkPredicate(raw)
+        except ValueError:  # pragma: no cover - unexpected predicate
+            return BiolinkPredicate.RELATED_TO
+    return BiolinkPredicate.RELATED_TO
+
+
+def _parse_datetime(raw: Any) -> datetime:
+    if isinstance(raw, datetime):
+        dt = raw
+    elif isinstance(raw, str):
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:  # pragma: no cover - malformed timestamp
+            dt = datetime.now(timezone.utc)
+    else:
+        dt = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _node_from_payload(payload: Dict[str, Any]) -> Node | None:
+    node_id = payload.get("id") or payload.get("_key")
+    if node_id is None:
+        return None
+    name = payload.get("name") or node_id
+    attributes = _coerce_dict(payload.get("attributes"))
+    synonyms = _coerce_str_list(payload.get("synonym") or payload.get("synonyms"))
+    xrefs = _coerce_str_list(payload.get("xref"))
+    return Node(
+        id=str(node_id),
+        name=str(name),
+        category=_parse_category(payload.get("category")),
+        description=payload.get("description"),
+        provided_by=payload.get("provided_by"),
+        synonyms=synonyms,
+        xrefs=xrefs,
+        attributes=attributes,
+    )
+
+
+def _edge_from_payload(payload: Dict[str, Any]) -> Edge | None:
+    subject = payload.get("subject")
+    if subject is None and payload.get("_from"):
+        subject = str(payload["_from"]).split("/", 1)[-1]
+    object_ = payload.get("object")
+    if object_ is None and payload.get("_to"):
+        object_ = str(payload["_to"]).split("/", 1)[-1]
+    if subject is None or object_ is None:
+        return None
+    predicate = _parse_predicate(payload.get("predicate"))
+    publications = _coerce_str_list(payload.get("publications"))
+    qualifiers_raw = _coerce_dict(payload.get("qualifiers"))
+    qualifiers = {str(key): value for key, value in qualifiers_raw.items()}
+    evidence_items: List[Evidence] = []
+    for raw in payload.get("evidence", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        source = raw.get("source")
+        if not source:
+            continue
+        annotations = _coerce_dict(raw.get("annotations"))
+        evidence_items.append(
+            Evidence(
+                source=str(source),
+                reference=raw.get("reference"),
+                confidence=_safe_float(raw.get("confidence")),
+                uncertainty=raw.get("uncertainty"),
+                annotations=annotations,
+            )
+        )
+    created_at = _parse_datetime(payload.get("created_at"))
+    return Edge(
+        subject=str(subject),
+        predicate=predicate,
+        object=str(object_),
+        relation=str(payload.get("relation", "biolink:related_to")),
+        knowledge_level=payload.get("knowledge_level"),
+        confidence=_safe_float(payload.get("confidence")),
+        publications=publications,
+        evidence=evidence_items,
+        qualifiers=qualifiers,
+        created_at=created_at,
+    )
 
 
 @dataclass(slots=True)
@@ -214,19 +357,190 @@ class Neo4jGraphStore(GraphStore):  # pragma: no cover - requires external servi
             session.run(cypher, rows=payload)
 
     def get_node(self, node_id: str) -> Node | None:
-        raise NotImplementedError("Direct Neo4j queries are handled by the API layer")
+        cypher = """
+        MATCH (n {id: $id})
+        RETURN n
+        LIMIT 1
+        """
+        with self._driver.session() as session:
+            record = session.run(cypher, id=node_id).single()
+        if not record:
+            return None
+        payload = _as_dict(record.get("n"))
+        node = _node_from_payload(payload)
+        return node
 
     def get_edge(self, subject: str, predicate: str, object_: str) -> Edge | None:
-        raise NotImplementedError("Direct Neo4j queries are handled by the API layer")
+        cypher = """
+        MATCH ()-[r:REL]->()
+        WHERE r.subject = $subject AND r.predicate = $predicate AND r.object = $object
+        RETURN r
+        LIMIT 1
+        """
+        with self._driver.session() as session:
+            record = session.run(cypher, subject=subject, predicate=predicate, object=object_).single()
+        if not record:
+            return None
+        payload = _as_dict(record.get("r"))
+        edge = _edge_from_payload(payload)
+        return edge
 
     def get_edge_evidence(self, subject: str | None = None, predicate: str | None = None, object_: str | None = None) -> List[Edge]:
-        raise NotImplementedError("Direct Neo4j queries are handled by the API layer")
+        filters: List[str] = []
+        params: Dict[str, Any] = {}
+        if subject is not None:
+            filters.append("r.subject = $subject")
+            params["subject"] = subject
+        if predicate is not None:
+            filters.append("r.predicate = $predicate")
+            params["predicate"] = predicate
+        if object_ is not None:
+            filters.append("r.object = $object")
+            params["object"] = object_
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        cypher = f"""
+        MATCH ()-[r:REL]->()
+        {where_clause}
+        RETURN r
+        ORDER BY r.subject, r.predicate, r.object
+        """
+        with self._driver.session() as session:
+            result = session.run(cypher, **params)
+            edges: List[Edge] = []
+            for record in result:
+                payload = _as_dict(record.get("r"))
+                edge = _edge_from_payload(payload)
+                if edge is not None:
+                    edges.append(edge)
+        return edges
 
     def neighbors(self, node_id: str, depth: int = 1, limit: int = 25) -> GraphFragment:
-        raise NotImplementedError("Direct Neo4j queries are handled by the API layer")
+        centre = self.get_node(node_id)
+        if centre is None:
+            return GraphFragment(nodes=[], edges=[])
+        neighbor_ids: List[str] = []
+        with self._driver.session() as session:
+            cypher_ids = """
+            MATCH (start {id: $node_id})
+            CALL {
+                WITH start
+                MATCH path=(start)-[:REL*1..$depth]-(neighbor)
+                RETURN DISTINCT neighbor.id AS id
+                LIMIT $limit
+            }
+            RETURN collect(id) AS neighbor_ids
+            """
+            record = session.run(
+                cypher_ids,
+                node_id=node_id,
+                depth=max(1, depth),
+                limit=max(0, limit),
+            ).single()
+            if record:
+                neighbor_ids = [str(value) for value in record.get("neighbor_ids", []) if value]
+            node_ids = [centre.id]
+            for identifier in neighbor_ids:
+                if identifier not in node_ids:
+                    node_ids.append(identifier)
+            node_ids = node_ids[: max(1, limit)]
+            nodes_query = """
+            MATCH (n)
+            WHERE n.id IN $ids
+            RETURN n
+            """
+            nodes: Dict[str, Node] = {}
+            for record in session.run(nodes_query, ids=node_ids):
+                payload = _as_dict(record.get("n"))
+                node = _node_from_payload(payload)
+                if node is not None:
+                    nodes[node.id] = node
+            if centre.id not in nodes:
+                nodes[centre.id] = centre
+            edge_query = """
+            MATCH (s)-[r:REL]->(o)
+            WHERE s.id IN $ids AND o.id IN $ids
+            RETURN r
+            """
+            edges: List[Edge] = []
+            edge_limit = max(1, limit) * 4
+            for record in session.run(edge_query, ids=list(nodes.keys())):
+                payload = _as_dict(record.get("r"))
+                edge = _edge_from_payload(payload)
+                if edge is not None:
+                    edges.append(edge)
+            edges = edges[:edge_limit]
+        ordered_nodes = [nodes[node_id] for node_id in node_ids if node_id in nodes]
+        if centre.id not in {node.id for node in ordered_nodes}:
+            ordered_nodes.insert(0, nodes[centre.id])
+        return GraphFragment(nodes=ordered_nodes, edges=edges)
 
     def find_gaps(self, focus_nodes: Sequence[str]) -> List[GraphGap]:
-        raise NotImplementedError("Direct Neo4j queries are handled by the API layer")
+        if not focus_nodes:
+            return []
+        unique_ids = list(dict.fromkeys(focus_nodes))
+        with self._driver.session() as session:
+            node_query = """
+            MATCH (n)
+            WHERE n.id IN $ids
+            RETURN n.id AS id
+            """
+            existing = {str(record.get("id")) for record in session.run(node_query, ids=unique_ids)}
+            filtered = [identifier for identifier in unique_ids if identifier in existing]
+            if len(filtered) < 2:
+                return []
+            edge_query = """
+            MATCH (s)-[r:REL]->(o)
+            WHERE s.id IN $ids AND o.id IN $ids AND r.predicate = $predicate
+            RETURN s.id AS subject, o.id AS object
+            """
+            predicate = BiolinkPredicate.RELATED_TO.value
+            connected = {
+                (str(record.get("subject")), str(record.get("object")))
+                for record in session.run(edge_query, ids=filtered, predicate=predicate)
+            }
+        gaps: List[GraphGap] = []
+        for i, subject in enumerate(filtered):
+            for object_ in filtered[i + 1 :]:
+                if (subject, object_) in connected or (object_, subject) in connected:
+                    continue
+                gaps.append(
+                    GraphGap(
+                        subject=subject,
+                        object=object_,
+                        reason="No related_to edge connecting the focus nodes.",
+                    )
+                    )
+        return gaps
+
+    def all_nodes(self) -> Sequence[Node]:
+        cypher = """
+        MATCH (n)
+        RETURN n
+        """
+        with self._driver.session() as session:
+            result = session.run(cypher)
+            nodes: List[Node] = []
+            for record in result:
+                payload = _as_dict(record.get("n"))
+                node = _node_from_payload(payload)
+                if node is not None:
+                    nodes.append(node)
+        return nodes
+
+    def all_edges(self) -> Sequence[Edge]:
+        cypher = """
+        MATCH ()-[r:REL]->()
+        RETURN r
+        """
+        with self._driver.session() as session:
+            result = session.run(cypher)
+            edges: List[Edge] = []
+            for record in result:
+                payload = _as_dict(record.get("r"))
+                edge = _edge_from_payload(payload)
+                if edge is not None:
+                    edges.append(edge)
+        return edges
 
 
 class ArangoGraphStore(GraphStore):  # pragma: no cover - requires external service
@@ -255,16 +569,174 @@ class ArangoGraphStore(GraphStore):  # pragma: no cover - requires external serv
             )
 
     def get_node(self, node_id: str) -> Node | None:
-        raise NotImplementedError
+        query = """
+        FOR doc IN nodes
+            FILTER doc._key == @id OR doc.id == @id
+            LIMIT 1
+            RETURN doc
+        """
+        cursor = self._db.aql.execute(query, bind_vars={"id": node_id})
+        for document in cursor:
+            node = _node_from_payload(dict(document))
+            if node is not None:
+                return node
+        return None
 
     def get_edge(self, subject: str, predicate: str, object_: str) -> Edge | None:
-        raise NotImplementedError
+        query = """
+        FOR edge IN edges
+            FILTER edge.subject == @subject AND edge.predicate == @predicate AND edge.object == @object
+            LIMIT 1
+            RETURN edge
+        """
+        cursor = self._db.aql.execute(
+            query,
+            bind_vars={"subject": subject, "predicate": predicate, "object": object_},
+        )
+        for document in cursor:
+            edge = _edge_from_payload(dict(document))
+            if edge is not None:
+                return edge
+        return None
 
     def get_edge_evidence(self, subject: str | None = None, predicate: str | None = None, object_: str | None = None) -> List[Edge]:
-        raise NotImplementedError
+        query = """
+        FOR edge IN edges
+            FILTER (@subject == null OR edge.subject == @subject)
+                AND (@predicate == null OR edge.predicate == @predicate)
+                AND (@object == null OR edge.object == @object)
+            SORT edge.subject, edge.predicate, edge.object
+            RETURN edge
+        """
+        cursor = self._db.aql.execute(
+            query,
+            bind_vars={"subject": subject, "predicate": predicate, "object": object_},
+        )
+        results: List[Edge] = []
+        for document in cursor:
+            edge = _edge_from_payload(dict(document))
+            if edge is not None:
+                results.append(edge)
+        return results
 
     def neighbors(self, node_id: str, depth: int = 1, limit: int = 25) -> GraphFragment:
-        raise NotImplementedError
+        centre = self.get_node(node_id)
+        if centre is None:
+            return GraphFragment(nodes=[], edges=[])
+        query = """
+        LET start = DOCUMENT(CONCAT('nodes/', @node_id))
+        FILTER start != null
+        LET traversed = (
+            FOR v, e IN 1..@depth ANY CONCAT('nodes/', @node_id) edges
+                OPTIONS { bfs: true, uniqueVertices: "path" }
+                LIMIT @limit
+                RETURN v
+        )
+        LET nodes = UNIQUE(APPEND([start], traversed))
+        LET nodeIds = nodes[*].id
+        LET edgeDocs = (
+            FOR edge IN edges
+                FILTER edge.subject IN nodeIds AND edge.object IN nodeIds
+                LIMIT @edge_limit
+                RETURN edge
+        )
+        RETURN { nodes: nodes, edges: edgeDocs }
+        """
+        cursor = self._db.aql.execute(
+            query,
+            bind_vars={
+                "node_id": node_id,
+                "depth": max(1, depth),
+                "limit": max(0, limit),
+                "edge_limit": max(1, limit) * 4,
+            },
+        )
+        fragment_nodes: Dict[str, Node] = {centre.id: centre}
+        fragment_edges: List[Edge] = []
+        for document in cursor:
+            data = dict(document)
+            for node_doc in data.get("nodes", []):
+                node = _node_from_payload(dict(node_doc))
+                if node is not None:
+                    fragment_nodes[node.id] = node
+            for edge_doc in data.get("edges", []):
+                edge = _edge_from_payload(dict(edge_doc))
+                if edge is not None:
+                    fragment_edges.append(edge)
+        ordered_ids = [centre.id]
+        for identifier in fragment_nodes:
+            if identifier != centre.id:
+                ordered_ids.append(identifier)
+        ordered_ids = ordered_ids[: max(1, limit)]
+        nodes = [fragment_nodes[node_id] for node_id in ordered_ids if node_id in fragment_nodes]
+        return GraphFragment(nodes=nodes, edges=fragment_edges[: max(1, limit) * 4])
 
     def find_gaps(self, focus_nodes: Sequence[str]) -> List[GraphGap]:
-        raise NotImplementedError
+        if not focus_nodes:
+            return []
+        query = """
+        LET available = (
+            FOR identifier IN @ids
+                LET doc = DOCUMENT(CONCAT('nodes/', identifier))
+                FILTER doc != null
+                RETURN doc.id
+        )
+        LET related = (
+            FOR edge IN edges
+                FILTER edge.subject IN available
+                    AND edge.object IN available
+                    AND edge.predicate == @predicate
+                RETURN { subject: edge.subject, object: edge.object }
+        )
+        RETURN { nodes: available, edges: related }
+        """
+        cursor = self._db.aql.execute(
+            query,
+            bind_vars={
+                "ids": list(dict.fromkeys(focus_nodes)),
+                "predicate": BiolinkPredicate.RELATED_TO.value,
+            },
+        )
+        available: List[str] = []
+        connected: set[tuple[str, str]] = set()
+        for document in cursor:
+            data = dict(document)
+            available = [str(identifier) for identifier in data.get("nodes", []) if identifier]
+            connected = {
+                (str(entry.get("subject")), str(entry.get("object")))
+                for entry in data.get("edges", [])
+                if entry.get("subject") and entry.get("object")
+            }
+        if len(available) < 2:
+            return []
+        gaps: List[GraphGap] = []
+        for i, subject in enumerate(available):
+            for object_ in available[i + 1 :]:
+                if (subject, object_) in connected or (object_, subject) in connected:
+                    continue
+                gaps.append(
+                    GraphGap(
+                        subject=subject,
+                        object=object_,
+                        reason="No related_to edge connecting the focus nodes.",
+                    )
+                )
+        return gaps
+
+    def all_nodes(self) -> Sequence[Node]:
+        cursor = self._db.aql.execute("FOR doc IN nodes RETURN doc")
+        nodes: List[Node] = []
+        for document in cursor:
+            node = _node_from_payload(dict(document))
+            if node is not None:
+                nodes.append(node)
+        return nodes
+
+    def all_edges(self) -> Sequence[Edge]:
+        cursor = self._db.aql.execute("FOR edge IN edges RETURN edge")
+        edges: List[Edge] = []
+        for document in cursor:
+            edge = _edge_from_payload(dict(document))
+            if edge is not None:
+                edges.append(edge)
+        return edges
