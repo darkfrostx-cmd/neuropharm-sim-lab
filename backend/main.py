@@ -132,8 +132,15 @@ REFERENCES: Dict[str, List[Citation]] = load_references()
 # Application
 # -----------------------------------------------------------------------------
 
-app = FastAPI(title="Neuropharm Simulation API",
-              description=("Simulate serotonergic, dopaminergic and other\n                           neurotransmitter systems under a variety of\n                           receptor manipulations.  See the README for\n                           details on the expected payload format."))
+app = FastAPI(
+    title="Neuropharm Simulation API",
+    description=(
+        "Simulate serotonergic, dopaminergic and other\n"
+        "neurotransmitter systems under a variety of\n"
+        "receptor manipulations.  See the README for\n"
+        "details on the expected payload format."
+    ),
+)
 
 # Configure CORS
 origins = os.environ.get("CORS_ORIGINS", "https://darkfrostx-cmd.github.io").split(",")
