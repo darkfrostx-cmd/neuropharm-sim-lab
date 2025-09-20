@@ -5,7 +5,8 @@ from backend.graph.models import (
     Evidence,
     Node,
 )
-from backend.graph.persistence import GraphGap, InMemoryGraphStore
+from backend.graph.gaps import GapReport
+from backend.graph.persistence import InMemoryGraphStore
 from backend.graph.service import GraphService
 
 
@@ -52,6 +53,7 @@ def test_expand_returns_fragment() -> None:
 def test_find_gaps_between_focus_nodes() -> None:
     store = build_store()
     service = GraphService(store=store)
-    gaps = service.find_gaps(["HGNC:5", "HGNC:6", "CHEMBL:25"])
+    gaps = service.find_gaps(["HGNC:5", "HGNC:6", "CHEMBL:25"], top_k=3)
     assert isinstance(gaps, list)
-    assert any(isinstance(gap, GraphGap) for gap in gaps)
+    assert all(isinstance(gap, GapReport) for gap in gaps)
+    assert any(gap.subject == "CHEMBL:25" and gap.object == "HGNC:6" for gap in gaps)

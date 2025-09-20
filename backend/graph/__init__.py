@@ -13,14 +13,18 @@ from .models import (
     Node,
 )
 from .bel import edge_to_bel, node_to_bel
+from .gaps import EmbeddingConfig, EmbeddingGapFinder, GapReport
 from .persistence import GraphFragment, GraphGap, GraphStore, InMemoryGraphStore
-from .service import GraphService, EvidenceSummary
+from .service import EvidenceSummary, GraphService
 
 __all__ = [
     "BiolinkEntity",
     "BiolinkPredicate",
     "Edge",
     "Evidence",
+    "EmbeddingConfig",
+    "EmbeddingGapFinder",
+    "GapReport",
     "GraphFragment",
     "GraphGap",
     "GraphService",
