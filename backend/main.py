@@ -229,7 +229,7 @@ def simulate(inp: SimulationInput) -> SimulationOutput:
         canon = canonical_receptor_name(rec_name)
         if canon in REFERENCES:
             citations[canon] = [
-                Citation.model_validate(ref.model_dump()) for ref in REFERENCES[canon]
+                Citation(**ref.dict()) for ref in REFERENCES[canon]
             ]
 
     details = {
