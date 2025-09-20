@@ -82,15 +82,23 @@ class SimulationOutput(BaseModel):
 
 
 def canonical_receptor_name(name: str) -> str:
-    """Return the canonical receptor key used throughout the simulation."""
+    """Normalise a receptor name to the canonical key used by the engine."""
 
-    if name in RECEPTORS:
-        return name
+    stripped = name.strip()
+    if not stripped:
+        return stripped
 
-    upper = name.upper()
-    if upper.startswith("5HT"):
-        upper = upper.replace("HT", "-HT", 1)
-    return upper
+    normalised = stripped.upper().replace(" ", "").replace("_", "-")
+
+    if normalised.startswith("5HT"):
+        suffix = normalised[3:].lstrip("-")
+        return f"5-HT{suffix}"
+
+    if normalised.startswith("5-HT"):
+        suffix = normalised[4:].lstrip("-")
+        return f"5-HT{suffix}"
+
+    return normalised
 
 
 def load_references() -> Dict[str, List[Citation]]:
@@ -106,7 +114,14 @@ def load_references() -> Dict[str, List[Citation]]:
     references: Dict[str, List[Citation]] = {}
     for raw_name, entries in refs_data.items():
         canon_name = canonical_receptor_name(raw_name)
-        references[canon_name] = [Citation(**entry) for entry in entries]
+        parsed_entries: List[Citation] = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                parsed_entries.append(Citation(**entry))
+            elif isinstance(entry, str):
+                parsed_entries.append(Citation(title=entry))
+        if parsed_entries:
+            references.setdefault(canon_name, []).extend(parsed_entries)
     return references
 
 
@@ -206,7 +221,9 @@ def simulate(inp: SimulationInput) -> SimulationOutput:
     for rec_name in inp.receptors.keys():
         canon = canonical_receptor_name(rec_name)
         if canon in REFERENCES:
-            citations[canon] = REFERENCES[canon]
+            citations[canon] = [
+                Citation.model_validate(ref.model_dump()) for ref in REFERENCES[canon]
+            ]
 
     details = {
         "raw_contributions": contrib,
