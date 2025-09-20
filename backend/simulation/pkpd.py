@@ -74,9 +74,9 @@ def _simulate_with_ospsuite(params: PKPDParameters, time: npt.NDArray[np.float64
     brain = np.interp(time, simulation.time, simulation.brain_concentration)
 
     summary = {
-        "auc": float(np.trapezoid(plasma, time)),
+        "auc": float(np.trapz(plasma, time)),
         "cmax": float(np.max(plasma)),
-        "exposure_index": float(np.trapezoid(brain, time) / (params.simulation_hours + 1e-6)),
+        "exposure_index": float(np.trapz(brain, time) / (params.simulation_hours + 1e-6)),
         "duration_h": float(params.simulation_hours),
         "regimen": params.regimen,
         "backend": "ospsuite",
@@ -124,9 +124,9 @@ def _two_compartment_model(params: PKPDParameters) -> PKPDProfile:
         plasma[idx] = max(0.0, plasma_prev + dt * dpdt)
         brain[idx] = max(0.0, brain_prev + dt * dbdt)
 
-    auc = float(np.trapezoid(plasma, time))
+    auc = float(np.trapz(plasma, time))
     cmax = float(np.max(plasma)) if plasma.size else 0.0
-    exposure_index = float(np.trapezoid(brain, time) / (params.simulation_hours + 1e-6))
+    exposure_index = float(np.trapz(brain, time) / (params.simulation_hours + 1e-6))
 
     summary: Dict[str, float | str] = {
         "auc": auc,

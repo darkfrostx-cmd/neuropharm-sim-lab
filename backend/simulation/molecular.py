@@ -176,7 +176,7 @@ def simulate_cascade(params: MolecularCascadeParams) -> MolecularCascadeResult:
 
     transient_peak = float(np.max(mean_activity))
     steady_state = float(mean_activity[-1])
-    auc = float(np.trapezoid(mean_activity, time))
+    auc = float(np.trapz(mean_activity, time))
     duration = float(time[-1] - time[0])
     activation_index = float(auc / duration) if duration > 0 else steady_state
 

@@ -1,3 +1,5 @@
+import math
+
 from backend.simulation import (
     EngineRequest,
     ReceptorEngagement,
@@ -37,6 +39,15 @@ def test_engine_chronic_ssri_profile():
     assert len(result.timepoints) == len(result.trajectories["plasma_concentration"])
     assert 0.0 <= result.confidence["DriveInvigoration"] <= 1.0
     assert result.scores["ApathyBlunting"] >= 0.0
+    molecular_summary = result.module_summaries["molecular"]
+    pkpd_summary = result.module_summaries["pkpd"]
+    assert molecular_summary["backend"] in {"analytic", "pysb"}
+    assert pkpd_summary["backend"] in {"analytic", "ospsuite"}
+    assert math.isfinite(molecular_summary["transient_peak"])
+    assert math.isfinite(molecular_summary["steady_state"])
+    assert math.isfinite(molecular_summary["activation_index"])
+    assert pkpd_summary["auc"] >= 0.0
+    assert pkpd_summary["exposure_index"] >= 0.0
 
 
 def test_affinity_expression_scaling_modulates_weights():
