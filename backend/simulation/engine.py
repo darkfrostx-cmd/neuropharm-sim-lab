@@ -23,6 +23,9 @@ class ReceptorEngagement:
     mechanism: Mechanism
     kg_weight: float
     evidence: float
+    affinity: float | None = None
+    expression: float | None = None
+    evidence_sources: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,12 +65,28 @@ class SimulationEngine:
         receptor_states: Dict[str, float] = {
             name: engagement.occupancy for name, engagement in request.receptors.items()
         }
-        receptor_weights: Dict[str, float] = {
-            name: engagement.kg_weight for name, engagement in request.receptors.items()
-        }
-        receptor_evidence: Dict[str, float] = {
-            name: engagement.evidence for name, engagement in request.receptors.items()
-        }
+        def _affinity_factor(value: float | None) -> float:
+            if value is None:
+                return 1.0
+            return float(max(0.5, min(1.4, 0.6 + 0.4 * value)))
+
+        def _expression_factor(value: float | None) -> float:
+            if value is None:
+                return 1.0
+            return float(max(0.6, min(1.35, 0.7 + 0.3 * value)))
+
+        receptor_weights: Dict[str, float] = {}
+        receptor_evidence: Dict[str, float] = {}
+        for name, engagement in request.receptors.items():
+            weight = engagement.kg_weight
+            weight *= _affinity_factor(engagement.affinity)
+            weight *= _expression_factor(engagement.expression)
+            receptor_weights[name] = float(max(0.05, min(1.2, weight)))
+
+            evidence_value = engagement.evidence
+            if engagement.evidence_sources:
+                evidence_value = min(0.99, evidence_value + 0.02 * len(engagement.evidence_sources))
+            receptor_evidence[name] = float(max(0.05, min(0.99, evidence_value)))
         mean_evidence = float(np.mean(list(receptor_evidence.values()) or [0.5]))
 
         molecular_params = MolecularCascadeParams(
@@ -195,6 +214,18 @@ class SimulationEngine:
             "molecular": molecular_result.summary,
             "pkpd": pkpd_profile.summary,
             "circuit": circuit_response.global_metrics,
+            "receptor_inputs": {
+                name: {
+                    "occupancy": engagement.occupancy,
+                    "mechanism": engagement.mechanism,
+                    "kg_weight": receptor_weights[name],
+                    "affinity": engagement.affinity,
+                    "expression": engagement.expression,
+                    "evidence": receptor_evidence[name],
+                    "sources": list(engagement.evidence_sources),
+                }
+                for name, engagement in request.receptors.items()
+            },
         }
 
         return EngineResult(

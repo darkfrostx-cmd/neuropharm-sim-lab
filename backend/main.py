@@ -28,7 +28,13 @@ from .engine.receptors import (
     canonical_receptor_name,
     get_receptor_weights,
 )
-from .simulation import EngineRequest, ReceptorEngagement, SimulationEngine
+from .graph.service import GraphService
+from .simulation import (
+    EngineRequest,
+    ReceptorEngagement,
+    SimulationEngine,
+    GraphBackedReceptorAdapter,
+)
 
 
 Mechanism = Literal["agonist", "antagonist", "partial", "inverse"]
@@ -42,6 +48,8 @@ except FileNotFoundError:
     RECEPTOR_REFS = {}
 
 ENGINE = SimulationEngine(time_step=1.0)
+GRAPH_SERVICE = GraphService()
+KG_ADAPTER = GraphBackedReceptorAdapter(GRAPH_SERVICE)
 
 # -----------------------------------------------------------------------------
 # Pydantic models
@@ -142,23 +150,40 @@ def simulate(inp: SimulationInput) -> SimulationOutput:
         regimen = "acute"
 
     engagements: Dict[str, ReceptorEngagement] = {}
+    receptor_context: Dict[str, Dict[str, Any]] = {}
     for rec_name, spec in inp.receptors.items():
         canon = canonical_receptor_name(rec_name)
         if canon not in RECEPTORS:
             continue
         weights = get_receptor_weights(canon)
         if weights:
-            kg_weight = sum(abs(w) for w in weights.values()) / len(weights)
+            fallback_weight = sum(abs(w) for w in weights.values()) / len(weights)
         else:
-            kg_weight = 0.25
-        evidence = min(0.95, 0.45 + 0.1 * len(RECEPTOR_REFS.get(canon, [])))
+            fallback_weight = 0.25
+        fallback_evidence = min(0.95, 0.45 + 0.1 * len(RECEPTOR_REFS.get(canon, [])))
+        bundle = KG_ADAPTER.derive(
+            canon,
+            fallback_weight=fallback_weight,
+            fallback_evidence=fallback_evidence,
+        )
         engagements[canon] = ReceptorEngagement(
             name=canon,
             occupancy=spec.occ,
             mechanism=spec.mech,
-            kg_weight=kg_weight,
-            evidence=evidence,
+            kg_weight=bundle.kg_weight,
+            evidence=bundle.evidence_score,
+            affinity=bundle.affinity,
+            expression=bundle.expression,
+            evidence_sources=bundle.evidence_sources,
         )
+        receptor_context[canon] = {
+            "kg_weight": bundle.kg_weight,
+            "evidence": bundle.evidence_score,
+            "affinity": bundle.affinity,
+            "expression": bundle.expression,
+            "sources": list(bundle.evidence_sources),
+            "evidence_items": bundle.evidence_count,
+        }
 
     engine_request = EngineRequest(
         receptors=engagements,
@@ -183,6 +208,7 @@ def simulate(inp: SimulationInput) -> SimulationOutput:
         "timepoints": result.timepoints,
         "trajectories": result.trajectories,
         "modules": result.module_summaries,
+        "receptor_context": receptor_context,
     }
 
     return SimulationOutput(
