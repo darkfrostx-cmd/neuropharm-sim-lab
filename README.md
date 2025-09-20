@@ -1,374 +1,153 @@
 # Neuropharm Simulation Lab
 
-The **Neuropharm Simulation Lab** is an interactive sandbox for exploring the
-neurobiological mechanisms of antidepressants and related neuromodulators.
-It combines a Python backend built with [FastAPI](https://fastapi.tiangolo.com/)
-and a lightweight HTML/JavaScript frontend to visualise how different
-serotonin receptor subtypes, dopamine and glutamate pathways and phenotypic
-modifiers (such as ADHD and gut–brain signalling) influence motivational
-states.
+The Neuropharm Simulation Lab couples a FastAPI knowledge graph backend with a
+Vite/React analytics cockpit. The UI blends top-down atlas views (NiiVue), graph
+neighbourhood navigation (Cytoscape) and bottom-up force projections to surface
+receptor provenance, uncertainty and simulation outputs in one place.
 
-This repository grew out of a series of discussions around
-biologically‑plausible models of SSRIs, atypical antidepressants, and
-adjunct therapies.  The backend exposes a `/simulate` endpoint that
-takes receptor occupancy and mechanism settings and returns synthetic
-scores for drive, apathy, motivation, cognitive flexibility, anxiety
-and sleep quality, along with citations supporting the simulated
-mechanisms.  The frontend provides interactive sliders, toggles and
-visualisations (bar charts and a 3D brain network rendered with
-Three.js) to explore the model in real time.
-
-## Project structure
+## What lives where
 
 ```
 neuropharm-sim-lab/
-├── backend
-│   ├── engine/          # definitions of receptors, weights and helper functions
-│   ├── simulation/      # PySB, PK/PD, and circuit orchestration layers
-│   │   ├── __init__.py
-│   │   └── receptors.py
-│   ├── main.py          # FastAPI app exposing the simulation endpoint
-│   ├── requirements.txt # Python dependencies
-│   └── refs.json        # citation database for each receptor
-├── frontend
-│   ├── index.html       # main page containing controls and visualisations
-│   ├── script.js        # browser logic for calling the API and rendering charts/3D
-│   └── styles.css       # styling for the UI
-├── .devcontainer
-│   └── devcontainer.json # Codespaces/Dev Containers setup
-├── .github
-│   └── workflows
-│       └── deploy-frontend.yml # GitHub Actions workflow for Pages deployment
+├── backend/
+│   ├── api/                  # REST endpoints wired to graph + simulation services
+│   ├── engine/               # Core receptor weight tables and helper utilities
+│   ├── graph/                # Knowledge-graph store, evidence lookups and gaps logic
+│   ├── simulation/           # PK/PD + circuit orchestration scaffolding
+│   ├── requirements.txt      # Lean, Linux-friendly dependency set
+│   └── requirements-optional.txt  # PySB/OSPSuite/TVB extras for research builds
+├── frontend/
+│   ├── src/                  # React components, hooks and styles
+│   ├── tests/e2e/            # Playwright end-to-end coverage
+│   └── playwright.config.ts  # Browser automation configuration
+├── render.yaml               # Render.com deployment recipe for the backend API
 └── README.md
 ```
 
-## Simulation engine architecture
-
-The backend simulation stack is split into three modular layers beneath
-`backend/simulation/`:
-
-1. **`molecular.py`** converts knowledge-graph derived receptor occupancies
-   into PySB-style cascades, returning time-varying activity for CREB, BDNF,
-   and other downstream effectors.
-2. **`pkpd.py`** approximates Open Systems Pharmacology / PBPK workflows to
-   produce plasma and brain concentration profiles under acute or chronic
-   dosing assumptions.
-3. **`circuit.py`** emulates The Virtual Brain coupling to summarise regional
-   activation dynamics in cortico-striatal-amygdala loops.
-
-`engine.py` orchestrates these layers, aligns their time grids, and produces
-behavioural scores with associated confidence intervals based on the evidence
-density captured in the knowledge graph.
-
-## Knowledge graph data layer
-
-The backend ships with a modular knowledge graph package under
-`backend/graph` that normalises scientific entities into
-[Biolink](https://biolink.github.io/biolink-model/) categories and can export
-statements in Biological Expression Language (BEL). Dedicated ingestion jobs
-pull evidence from INDRA, OpenAlex, ChEMBL, the IUPHAR/BindingDB pharmacology
-services, and the Allen Brain Atlas / EBRAINS neuroanatomy collections.
-
-### Data sources and refresh cadence
-
-| Source | Endpoint | Recommended refresh | Notes |
-| --- | --- | --- | --- |
-| INDRA | `https://db.indra.bio/statements/from_agents` | Weekly | Belief scores are cached; rerun if upstream statements change. |
-| OpenAlex | `https://api.openalex.org/works` | Weekly | Respect polite usage limits (≤1 request per second with `mailto`). |
-| ChEMBL | `https://www.ebi.ac.uk/chembl/api/data/activity.json` | Monthly | Activity snapshots are updated after every ChEMBL release. |
-| IUPHAR/Guide to Pharmacology | `https://www.guidetopharmacology.org/services/targets` | Quarterly | Re-run when receptor families or synonyms are updated. |
-| BindingDB | `https://www.bindingdb.org/axis2/services/BDBService/getLigandInteractions` | Monthly | Filter by ligand to avoid full-database pulls. |
-| Allen Brain Atlas | `https://api.brain-map.org/api/v2/data/Structure/query.json` | Quarterly | Atlas hierarchies evolve slowly; quarterly refresh keeps pace. |
-| EBRAINS atlases | `https://ebrains-curation.eu/api/atlases/regions` | Quarterly | Fetches the curated atlas registry for structural gaps. |
-
-### Free-tier limits
-
-All configured endpoints can be exercised on free tiers:
-
-- **OpenAlex** enforces a soft limit of around 10 requests per minute without
-  an API key; include a `mailto` parameter to stay compliant.
-- **ChEMBL** and **IUPHAR** are open HTTP APIs but request users cap burst
-  traffic; the ingestion jobs honour this by batching requests in small pages.
-- **BindingDB** SOAP endpoints return at most a few hundred records per call;
-  request ligand-specific windows to avoid throttling.
-- **Allen Brain Atlas** and **EBRAINS** APIs currently serve public data with
-  no authentication, but the jobs retry politely on transient 503 responses.
-- **INDRA** caches responses aggressively; repeated weekly refreshes stay
-  within their guidance for community projects.
-
-### Configuring persistence
-
-Set the following environment variables before running an ingestion job or the
-API:
-
-| Variable | Description |
-| --- | --- |
-| `GRAPH_BACKEND` | One of `memory`, `neo4j`, or `arangodb`. Defaults to `memory`. |
-| `GRAPH_URI` | Connection string (AuraDB `neo4j+s://…` or ArangoDB HTTP endpoint). |
-| `GRAPH_USERNAME` / `GRAPH_PASSWORD` | Credentials when required by the backend. |
-| `GRAPH_DATABASE` | Optional database name (used by ArangoDB). |
-
-During development the default in-memory store keeps the graph transient. For a
-hosted deployment point the configuration at a managed AuraDB or ArangoDB
-instance; both offer free-tier databases adequate for nightly refresh runs.
-
-When targeting **Neo4j** deployments:
-
-- Create a uniqueness constraint or btree index on the node ``id`` property so
-  the Cypher lookups used by the API remain O(log n):
-
-  ```cypher
-  CREATE BTREE INDEX graph_node_id IF NOT EXISTS FOR (n) ON (n.id)
-  ```
-
-- Relationships are written as ``:REL`` edges with ``subject``, ``object`` and
-  ``predicate`` properties. Ensure that existing data conforms to this shape or
-  run a one-off migration before switching the backend.
-- AuraDB Free tiers comfortably handle the evidence volume used in the tests
-  (≈50k relationships) but enforce connection limits of 3 concurrent sessions.
-  Batch ingestion jobs should therefore reuse a small driver pool.
-
-For **ArangoDB** deployments:
-
-- Pre-create a document collection named ``nodes`` and an edge collection named
-  ``edges``. The ingestion jobs insert documents with ``_key`` matching the node
-  CURIE and edges with ``_from``/``_to`` pointing at ``nodes/<curie>``.
-- Add persistent indexes on ``edges.subject``, ``edges.object`` and
-  ``edges.predicate`` to keep the evidence and gap queries responsive on
-  datasets larger than a few hundred thousand edges.
-- The managed Oasis free tier permits up to 1 GB of storage and 40 concurrent
-  AQL operations; plan ingestion batches accordingly or upgrade the service
-  class before loading full public releases of the graph.
-
-## Running locally
-
-Follow this numbered quick-start to see the simulator running on your own
-computer. Each step is written in plain language, and we have included
-call-outs for screenshots you can capture or replace later.
-
-1. **Prepare your computer**
-
-   * Install [Python 3.9 or newer](https://www.python.org/downloads/) with
-     the "Add Python to PATH" option enabled on Windows.
-   * Install [Git](https://git-scm.com/downloads) so you can download the
-     project (or plan to use the green **Code → Download ZIP** button on
-     GitHub).
-   * Make sure you have a modern web browser such as Chrome, Edge, Firefox,
-     or Safari.
-   * Verify your setup by opening a terminal (Command Prompt on Windows,
-     Terminal on macOS/Linux) and running `python --version`.
-
-   > 📸 **Screenshot placeholder:** Capture the Python installer or the
-   > terminal showing a successful `python --version` check.
-
-2. **Get the project files**
-
-   * Open a terminal and choose a folder where you want the project to
-     live.
-   * Run:
-
-     ```bash
-     git clone https://github.com/your-user/neuropharm-sim-lab.git
-     cd neuropharm-sim-lab
-     ```
-
-     If you downloaded the ZIP instead, unzip it and open the folder in
-     your file explorer.
-
-   > 📸 **Screenshot placeholder:** Show the project folder visible in your
-   > file explorer or terminal after cloning/extracting.
-
-3. **Start the backend (the data engine)**
-
-   * In the terminal, move into the backend folder and install the
-     dependencies:
-
-     ```bash
-     cd backend
-     pip install -r requirements.txt
-     ```
-
-     The optional scientific toolkits listed at the end of
-     `backend/requirements.txt` – `PySB`, `OSPSuite`, and
-     `tvb-library` – enable the full molecular cascade, PBPK, and brain
-     network integrations. They are not required for the lightweight test
-     harness used in this repository, but you should install them when you
-     plan to run external PySB models, Open Systems Pharmacology workflows,
-     or The Virtual Brain coupling experiments.
-
-   * Start the FastAPI server:
-
-     ```bash
-     uvicorn main:app --reload
-     ```
-
-     Keep this terminal window open. When you see "Uvicorn running on
-     http://127.0.0.1:8000", the backend is ready. Visit
-     `http://127.0.0.1:8000/docs` in a browser tab if you want to see the
-     interactive API documentation.
-
-   > 📸 **Screenshot placeholder:** Terminal window showing the Uvicorn
-   > startup message.
-
-4. **Point the frontend at your local backend**
-
-   * The frontend defaults to the hosted demo API. Open
-     `frontend/script.js` in any text editor (Notepad, VS Code, TextEdit) and
-     update the top line so it reads:
-
-     ```javascript
-     const API_BASE = 'http://127.0.0.1:8000';
-     ```
-
-   * Save the file. This change tells the web page to talk to the backend
-     you just started.
-
-   > 📸 **Screenshot placeholder:** Text editor showing the updated
-   > `API_BASE` line.
-
-5. **Launch the frontend control panel**
-
-   * Open a second terminal window so the backend can keep running in the
-     first one.
-   * Go to the project’s root folder (the one that contains both `backend`
-     and `frontend`) and run:
-
-     ```bash
-     cd path/to/neuropharm-sim-lab
-     python -m http.server 8080
-     ```
-
-     Leave this window open as well. It shares the frontend files at
-     `http://localhost:8080`.
-   * Open your browser and navigate to
-     `http://localhost:8080/frontend/index.html`. You should now be able to
-     move the sliders, choose modifiers, and click **Run simulation** to see
-     the charts update.
-
-   > 📸 **Screenshot placeholder:** Browser window showing the simulator
-   > page with sliders and the chart.
-
-### Use the simulator from another device on your network
-
-Sometimes you want to explore the simulator from a tablet or phone while the
-servers run on your computer. Follow these steps:
-
-1. **Find your computer’s local IP address.**
-   * Windows: open Command Prompt and run `ipconfig`, then look for the
-     `IPv4 Address` in the section for your active Wi‑Fi/Ethernet adapter.
-   * macOS: open Terminal and run `ipconfig getifaddr en0` (Wi‑Fi) or
-     `ipconfig getifaddr en1` (Ethernet). If those do not work, run
-     `ifconfig` and find the `inet` value under `en0`/`en1`.
-   * Linux: run `hostname -I` or `ip addr` and pick the address that looks
-     like `192.168.x.x` or `10.x.x.x`.
-
-2. **Restart the servers so they listen on your network.**
-   * Stop the backend with `Ctrl+C`, then run:
-
-     ```bash
-     uvicorn main:app --host 0.0.0.0 --port 8000
-     ```
-
-   * Stop the frontend server window with `Ctrl+C`, then run from the project
-     root:
-
-     ```bash
-     python -m http.server 8080 --bind 0.0.0.0
-     ```
-
-3. **Update the frontend API setting.** Edit `frontend/script.js` again so the
-   line reads:
-
-   ```javascript
-   const API_BASE = 'http://<your-ip-address>:8000';
-   ```
-
-   Replace `<your-ip-address>` with the value you found in step 1 (for example,
-   `http://192.168.1.24:8000`). Save the file.
-
-4. **Connect from the other device.** Make sure the device is on the same
-   Wi‑Fi/network as your computer. Open its browser and visit
-   `http://<your-ip-address>:8080/frontend/index.html`. Mobile browsers may
-   show a warning about an "insecure" connection; choose **Proceed** if
-   prompted.
-
-### Troubleshooting and shutting everything down
-
-* **Firewall pop-ups:** Allow Python to communicate on private networks when
-  Windows or macOS asks for permission. If you accidentally blocked it, open
-  your firewall settings and enable inbound connections for Python on ports
-  8000 and 8080.
-* **Port already in use:** If another application is using port 8000 or 8080,
-  pick different numbers (for example 9000 and 9090) when starting Uvicorn and
-  the HTTP server. Update `API_BASE` and the browser URL to match.
-* **Browser cannot reach the backend:** Double-check that both terminal windows
-  are still running and that `API_BASE` matches the server address exactly.
-  Refresh the page after saving any changes.
-* **Stopping the servers:** Press `Ctrl+C` in each terminal window when you are
-  finished. On macOS you can also press `⌘ + .` in the Terminal app. Once the
-  prompts return, both servers are fully stopped.
-
-## Deploying
-
-### GitHub Pages (frontend)
-
-This repository includes a GitHub Actions workflow that publishes the
-contents of the `frontend/` directory to the `gh-pages` branch on every push to
-`main`.  To enable GitHub Pages for your fork:
-
-1. Go to **Settings → Pages** in your repository.
-2. Under **Build and deployment**, select **GitHub Actions** as the
-   source.
-3. After pushing to `main` the first time, the workflow will build and
-   deploy the frontend.  The site will be available at
-   `https://<your-username>.github.io/<repository-name>/index.html`.
-
-### Backend hosting (Render, Fly.io, etc.)
-
-The backend is a standard FastAPI application, so you can deploy it on
-any service that supports ASGI apps.  One simple option is
-[Render.com](https://render.com/): create a new **Web Service**, point
-it at your GitHub repo, choose a Python environment and set the start
-command to:
-
-```
-uvicorn backend.main:app --host 0.0.0.0 --port 10000
+## Quickstart
+
+### 1. Backend API
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-Render will build and run the API.  Make a note of the URL it assigns
-to the service (e.g. `https://my-neuropharm-api.onrender.com`).  Then
-set the `VITE_API_URL` environment variable or adjust the `script.js`
-fetch code accordingly.
+The optional simulation toolkits (PySB, OSPSuite, TVB) pull heavy native wheels.
+Install them only when you need the full PK/PD stack:
 
-## Extending the model
+```bash
+pip install -r backend/requirements-optional.txt
+```
 
-The simulation logic lives in `backend/engine/receptors.py` and in the
-calculation functions in `backend/main.py`.  Each receptor is defined
-with a set of weights for different outcome metrics (drive, apathy,
-motivation, cognitive flexibility, anxiety and sleep quality) and a
-short description.  Mechanism factors for agonists, antagonists,
-partial agonists and inverse agonists are defined as multipliers.  To
-add a new receptor, simply insert a new entry into the `RECEPTORS`
-dictionary with appropriate weights and description.  The citations
-database in `refs.json` should also be updated with references for the
-new receptor.
+**Render fix:** Render will happily install the lean requirements, but PySB’s
+Fortran build chain fails on their default image. The included `render.yaml`
+forces Python 3.10 and pins the build command to `pip install -r
+backend/requirements.txt`, eliminating the broken optional wheel resolution. If
+you do want the full simulation layer on Render, provision a starter instance
+with the *Docker* stack and add system BLAS/LAPACK packages first.
 
-If you wish to introduce additional phenotypic modifiers or complex
-pharmacokinetic/pharmacodynamic models, consider building new helper
-functions in `engine/` and exposing additional parameters in the
-`SimInput` model in `main.py`.  The frontend can then be updated to
-include UI controls for these parameters.
+### 2. Frontend cockpit
 
-## A note on citations
+```bash
+cd frontend
+npm install
+# Point the frontend at your API; defaults to same-origin
+echo "VITE_API_BASE_URL=http://localhost:8000" > .env.local
+npm run dev -- --host 0.0.0.0 --port 5173
+```
 
-Each receptor in `refs.json` maps to one or more references from the
-scientific literature.  These are provided as examples only.  In a
-production system you would curate a richer set of references and
-update them regularly.  When the simulation is run, the API returns
-which receptors were involved and their associated references, which
-the frontend displays.
+Key features shipped by the React app:
 
-## License
+- **Atlas overlays (NiiVue):** hash any selected receptor/node into deterministic
+  MNI coordinates to keep the anatomical view responsive even without curated
+  ROI volumes.
+- **Graph neighbourhoods (Cytoscape + react-force-graph):** jump between
+  top-down Cytoscape layouts and a bottom-up force graph with shared selection
+  state.
+- **Evidence workbench:** provenance cards, uncertainty badges and explanation
+  trails for `/predict/effects` and `/explain` responses.
+- **Simulation cockpit:** occupancy sliders, mechanism selectors, regimen
+  toggles and a time cursor wired to `/simulate` outputs.
 
-This project is released under the MIT License.  See the `LICENSE`
-file for details.
+### 3. Tests and checks
+
+Run the project guardrails after making changes:
+
+```bash
+python -m compileall backend/main.py
+pytest
+cd frontend
+npm test -- --watch=false
+```
+
+`npm test` invokes both Vitest (unit) and Playwright (E2E) via a small wrapper
+script so CI and local runs behave the same way.
+
+## Deployment notes
+
+### GitHub Pages frontend
+
+`.github/workflows/deploy-frontend.yml` now builds the React bundle before
+publishing:
+
+```yaml
+- uses: actions/setup-node@v4
+  with:
+    node-version: '20'
+    cache: npm
+- run: cd frontend && npm ci && npm run build
+- uses: peaceiris/actions-gh-pages@v3
+  with:
+    publish_dir: frontend/dist
+```
+
+Enable Pages → GitHub Actions in your repository settings and pushes to `main`
+will redeploy automatically.
+
+### Render.com backend
+
+The new `render.yaml` captures the working configuration. Deploy by connecting
+the repo and selecting “Use existing `render.yaml`”. Render will:
+
+- Pin the runtime to Python 3.10 where the lean requirements have prebuilt
+  wheels.
+- Install only `backend/requirements.txt` to avoid the PySB/ospsuite build
+  failures shown in the earlier screenshots.
+- Launch Uvicorn with `backend.main:app` on the assigned `$PORT`.
+
+If you later need the optional toolkits, switch the service to the Docker stack
+or run the install step inside a job that preinstalls `gfortran`, `cmake` and
+`libblas-dev`.
+
+## Frontend data hooks
+
+All React components talk to the backend through composable hooks in
+`src/hooks/apiHooks.js`:
+
+- `useGraphExpand` → `/graph/expand`
+- `usePredictEffects` → `/predict/effects`
+- `useExplain` → `/explain`
+- `useGapFinder` → `/gaps`
+- `useSimulation` → `/simulate`
+
+Each hook exposes `{ status, data, error, execute, reset }` so you can chain
+workflows (e.g. populate the simulation cockpit once the evidence cards arrive).
+Utility helpers also emit Cytoscape element lists and force-graph payloads from
+the shared response model.
+
+## Contributing
+
+Follow the guardrails documented in `AGENTS.md`:
+
+1. Keep commits focused and accompany code changes with relevant docs/tests.
+2. Run the compile step, `pytest`, and `npm test -- --watch=false` before
+   opening a PR.
+3. Document any optional dependency requirements when you extend the simulator
+   or graph ingestion stack.
+
+Questions or feedback? File an issue or start a discussion—new receptors,
+visual encodings, or ingestion jobs are always welcome.
+

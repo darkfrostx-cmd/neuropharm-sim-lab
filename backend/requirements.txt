@@ -5,8 +5,5 @@ scipy>=1.8.0
 pydantic>=2.1.1
 requests>=2.31.0
 httpx>=0.27.0
-# Optional domain toolkits leveraged by the simulation orchestration layer
-# (install when running full PySB/OSP/TVB integrations)
-pysb>=1.13.0
-ospsuite>=11.0.0
-tvb-library>=2.8.0
+# Optional domain toolkits have been moved to requirements-optional.txt.
+# Install them manually when running the full PySB/OSP/TVB integration stack.

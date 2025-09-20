@@ -1,0 +1,54 @@
+.uncertainty-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  border-radius: 999px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--color-text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.uncertainty-badge .uncertainty-label {
+  opacity: 0.75;
+}
+
+.uncertainty-badge .uncertainty-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.uncertainty-low {
+  border-color: #43a047;
+  color: #c8e6c9;
+  background: rgba(67, 160, 71, 0.18);
+}
+
+.uncertainty-moderate {
+  border-color: #ffb300;
+  color: #ffe082;
+  background: rgba(255, 179, 0, 0.2);
+}
+
+.uncertainty-elevated {
+  border-color: #fb8c00;
+  color: #ffcc80;
+  background: rgba(251, 140, 0, 0.22);
+}
+
+.uncertainty-high {
+  border-color: #ef5350;
+  color: #ffcdd2;
+  background: rgba(239, 83, 80, 0.24);
+}
+
+.uncertainty-unknown {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.08);
+}
+

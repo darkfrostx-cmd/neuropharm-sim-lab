@@ -1,0 +1,15 @@
+.force-graph-wrapper {
+  width: 100%;
+  height: 320px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(88, 119, 184, 0.4);
+  background: radial-gradient(circle at top, rgba(29, 78, 216, 0.35), rgba(15, 23, 42, 0.95));
+  position: relative;
+}
+
+.force-graph-wrapper canvas {
+  position: absolute;
+  inset: 0;
+}
+
