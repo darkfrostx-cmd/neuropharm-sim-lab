@@ -61,6 +61,16 @@ class GraphStore:
     def find_gaps(self, focus_nodes: Sequence[str]) -> List[GraphGap]:  # pragma: no cover - interface
         raise NotImplementedError
 
+    def all_nodes(self) -> Sequence[Node]:  # pragma: no cover - interface
+        """Return all nodes stored in the backend."""
+
+        raise NotImplementedError
+
+    def all_edges(self) -> Sequence[Edge]:  # pragma: no cover - interface
+        """Return all edges stored in the backend."""
+
+        raise NotImplementedError
+
 
 class InMemoryGraphStore(GraphStore):
     """Simple in-memory graph store for tests and local development."""
@@ -147,6 +157,12 @@ class InMemoryGraphStore(GraphStore):
                         )
                     )
         return gaps
+
+    def all_nodes(self) -> Sequence[Node]:
+        return list(self._nodes.values())
+
+    def all_edges(self) -> Sequence[Edge]:
+        return list(self._edges.values())
 
 
 class Neo4jGraphStore(GraphStore):  # pragma: no cover - requires external service
