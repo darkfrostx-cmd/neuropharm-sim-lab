@@ -1,0 +1,220 @@
+{
+  "version": "2025-09-05",
+  "nodes": [
+    {
+      "id": "CHEMBL25",
+      "name": "Sertraline",
+      "category": "biolink:ChemicalSubstance",
+      "provided_by": "ChEMBL",
+      "synonyms": [
+        "Zoloft"
+      ],
+      "attributes": {
+        "mechanism": "SERT inhibitor",
+        "drug_class": "SSRI"
+      }
+    },
+    {
+      "id": "CHEMBL120",
+      "name": "Fluoxetine",
+      "category": "biolink:ChemicalSubstance",
+      "provided_by": "ChEMBL",
+      "synonyms": [
+        "Prozac"
+      ],
+      "attributes": {
+        "mechanism": "SERT inhibitor",
+        "drug_class": "SSRI"
+      }
+    },
+    {
+      "id": "HGNC:11068",
+      "name": "SLC6A4",
+      "category": "biolink:Gene",
+      "provided_by": "ChEMBL",
+      "synonyms": [
+        "SERT"
+      ],
+      "attributes": {
+        "uniprot": "P31645"
+      }
+    },
+    {
+      "id": "HGNC:5293",
+      "name": "HTR2A",
+      "category": "biolink:Gene",
+      "provided_by": "INDRA",
+      "attributes": {
+        "g_protein": "Gq/11"
+      }
+    },
+    {
+      "id": "HGNC:5290",
+      "name": "HTR1A",
+      "category": "biolink:Gene",
+      "provided_by": "INDRA",
+      "attributes": {
+        "g_protein": "Gi/o"
+      }
+    },
+    {
+      "id": "HGNC:2345",
+      "name": "CREB1",
+      "category": "biolink:Gene",
+      "provided_by": "INDRA"
+    },
+    {
+      "id": "UBERON:0001950",
+      "name": "Hippocampus",
+      "category": "biolink:BrainRegion",
+      "provided_by": "Allen Brain Atlas",
+      "attributes": {
+        "acronym": "HPC"
+      }
+    },
+    {
+      "id": "UBERON:0001954",
+      "name": "Cerebral cortex",
+      "category": "biolink:BrainRegion",
+      "provided_by": "Allen Brain Atlas",
+      "attributes": {
+        "acronym": "CTX"
+      }
+    },
+    {
+      "id": "https://openalex.org/W1234567890",
+      "name": "Serotonin transporter plasticity after chronic SSRI",
+      "category": "biolink:Publication",
+      "provided_by": "OpenAlex",
+      "attributes": {
+        "publication_year": 2024,
+        "cited_by_count": 12
+      }
+    }
+  ],
+  "edges": [
+    {
+      "subject": "CHEMBL:25",
+      "predicate": "biolink:interacts_with",
+      "object": "HGNC:11068",
+      "confidence": 0.86,
+      "publications": [
+        "PMID:12345"
+      ],
+      "evidence": [
+        {
+          "source": "ChEMBL",
+          "reference": "CHEMBL_DOC:SERTRALINE",
+          "confidence": 0.86,
+          "annotations": {
+            "assay": "uptake",
+            "relation": "=",
+            "affinity_nM": 15.2
+          }
+        }
+      ]
+    },
+    {
+      "subject": "CHEMBL:120",
+      "predicate": "biolink:interacts_with",
+      "object": "HGNC:5290",
+      "confidence": 0.52,
+      "publications": [
+        "PMID:23456"
+      ],
+      "evidence": [
+        {
+          "source": "BindingDB",
+          "reference": "PMID:23456",
+          "confidence": 0.52,
+          "annotations": {
+            "measure": "Ki",
+            "value_nM": 65.0
+          }
+        }
+      ]
+    },
+    {
+      "subject": "HGNC:5290",
+      "predicate": "biolink:affects",
+      "object": "HGNC:2345",
+      "confidence": 0.71,
+      "publications": [
+        "PMID:34567"
+      ],
+      "evidence": [
+        {
+          "source": "INDRA",
+          "reference": "PMID:34567",
+          "confidence": 0.71,
+          "annotations": {
+            "statement": "Activation",
+            "context": "rat_hippocampus"
+          }
+        }
+      ]
+    },
+    {
+      "subject": "HGNC:5293",
+      "predicate": "biolink:coexpressed_with",
+      "object": "HGNC:5290",
+      "confidence": 0.48,
+      "publications": [
+        "PMID:45678"
+      ],
+      "evidence": [
+        {
+          "source": "Allen Brain Atlas",
+          "reference": "PMID:45678",
+          "confidence": 0.48,
+          "annotations": {
+            "region": "mPFC"
+          }
+        }
+      ]
+    },
+    {
+      "subject": "HGNC:5293",
+      "predicate": "biolink:expresses",
+      "object": "UBERON:0001950",
+      "confidence": 0.62,
+      "evidence": [
+        {
+          "source": "Allen Brain Atlas",
+          "reference": "MBA:997",
+          "confidence": 0.62,
+          "annotations": {
+            "expression_level": "moderate"
+          }
+        }
+      ]
+    },
+    {
+      "subject": "UBERON:0001950",
+      "predicate": "biolink:part_of",
+      "object": "UBERON:0001954",
+      "evidence": [
+        {
+          "source": "Allen Brain Atlas",
+          "annotations": {
+            "relation": "hierarchy"
+          }
+        }
+      ]
+    },
+    {
+      "subject": "https://openalex.org/W1234567890",
+      "predicate": "biolink:associated_with",
+      "object": "HGNC:11068",
+      "evidence": [
+        {
+          "source": "OpenAlex",
+          "reference": "10.1000/xyz123",
+          "annotations": {
+            "score": 0.92
+          }
+        }
+      ]
+    }
+  ]
+}
