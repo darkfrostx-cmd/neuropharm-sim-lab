@@ -344,10 +344,34 @@ def find_graph_gaps(
             context={"missing": missing},
         )
     gaps = svc.graph_service.find_gaps(request.focus_nodes)
-    items = [
-        schemas.GapDescriptor(subject=gap.subject, object=gap.object, reason=gap.reason)
-        for gap in gaps
-    ]
+    items: List[schemas.GapDescriptor] = []
+    for gap in gaps:
+        metadata = dict(gap.metadata)
+        metadata.setdefault("context_weight", 1.0)
+        metadata.setdefault("context_label", "")
+        metadata.setdefault("raw_score", float(gap.embedding_score or 0.0))
+        context_weight = float(metadata.get("context_weight", 1.0)) if metadata else 1.0
+        raw_score = float(metadata.get("raw_score", gap.embedding_score or 0.0))
+        impact_component = float(max(0.0, min(1.0, abs(gap.embedding_score or 0.0))))
+        uncertainty = float(
+            max(
+                0.05,
+                min(0.95, 1.0 - min(0.9, 0.3 * context_weight + 0.2 * impact_component)),
+            )
+        )
+        items.append(
+            schemas.GapDescriptor(
+                subject=gap.subject,
+                object=gap.object,
+                predicate=gap.predicate.value,
+                reason=gap.reason,
+                embedding_score=gap.embedding_score,
+                impact_score=gap.impact_score,
+                context=metadata,
+                literature=list(gap.literature),
+                uncertainty=uncertainty,
+            )
+        )
     return schemas.GapResponse(items=items)
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 
 import numpy as np
 
@@ -41,7 +41,7 @@ class GapCandidate:
     score: float
     impact: float
     reason: str = "Embedding model highlighted this relation as a likely gap."
-    metadata: Dict[str, float] = field(default_factory=dict)
+    metadata: Dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -59,6 +59,7 @@ class GapReport:
     causal_confidence: float | None = None
     counterfactual_summary: str | None = None
     literature: List[str] = field(default_factory=list)
+    metadata: Dict[str, object] = field(default_factory=dict)
 
 
 class EmbeddingGapFinder:
@@ -89,6 +90,7 @@ class EmbeddingGapFinder:
         existing = {(edge.subject, edge.predicate.value, edge.object) for edge in edges}
         existing_pairs = self._existing_pair(existing)
         degrees = self._compute_degrees(edges)
+        context = self._collect_context(edges)
         candidates: List[GapCandidate] = []
         for subject in focus_nodes:
             if subject not in self._node_index:
@@ -100,18 +102,31 @@ class EmbeddingGapFinder:
                     best = self._best_predicate(subject, node_id)
                     if best is None:
                         continue
-                    predicate, score = best
-                    impact = self._impact_score(score, degrees.get(subject, 0), degrees.get(node_id, 0))
+                    predicate, raw_score = best
+                    context_weight, context_label = self._contextual_weight(subject, node_id, context)
+                    adjusted_score = raw_score * context_weight
+                    impact = self._impact_score(adjusted_score, degrees.get(subject, 0), degrees.get(node_id, 0))
                     if node_id in focus_targets:
                         impact /= 1.5
+                    metadata = {
+                        "degree_sum": float(degrees.get(subject, 0) + degrees.get(node_id, 0)),
+                        "context_weight": float(context_weight),
+                        "raw_score": float(raw_score),
+                    }
+                    default_reason = GapCandidate.__dataclass_fields__["reason"].default
+                    reason = str(default_reason)
+                    metadata["context_label"] = context_label or ""
+                    if context_label:
+                        reason = f"{reason} Context: {context_label}."
                     candidates.append(
                         GapCandidate(
                             subject=subject,
                             object=node_id,
                             predicate=predicate,
-                            score=score,
+                            score=adjusted_score,
                             impact=impact,
-                            metadata={"degree_sum": float(degrees.get(subject, 0) + degrees.get(node_id, 0))},
+                            reason=reason,
+                            metadata=metadata,
                         )
                     )
         candidates.sort(key=lambda candidate: candidate.impact, reverse=True)
@@ -242,7 +257,8 @@ class EmbeddingGapFinder:
 
     def _impact_score(self, embedding_score: float, subject_degree: int, object_degree: int) -> float:
         degree_factor = math.log(2 + subject_degree + object_degree)
-        return embedding_score * degree_factor
+        magnitude = abs(embedding_score)
+        return magnitude * degree_factor
 
     @staticmethod
     def _compute_degrees(edges: Sequence[Edge]) -> Dict[str, int]:
@@ -263,6 +279,133 @@ class EmbeddingGapFinder:
         if norm > max_norm:
             vector = (vector / norm) * max_norm
         return vector
+
+    # ------------------------------------------------------------------
+    # Context helpers
+    # ------------------------------------------------------------------
+    def _collect_context(self, edges: Sequence[Edge]) -> Dict[str, Dict[str, object]]:
+        context: Dict[str, Dict[str, object]] = {}
+
+        def _entry(identifier: str) -> Dict[str, object]:
+            return context.setdefault(
+                identifier,
+                {
+                    "species": set(),
+                    "timecourse": set(),
+                    "regions": set(),
+                    "behaviors": set(),
+                    "confidence": [],
+                },
+            )
+
+        for edge in edges:
+            qualifiers = edge.qualifiers or {}
+            species = self._normalize_to_set(
+                qualifiers.get("species")
+                or qualifiers.get("species_name")
+                or qualifiers.get("taxon")
+                or qualifiers.get("species_id")
+            )
+            timecourse = self._normalize_to_set(
+                qualifiers.get("timecourse")
+                or qualifiers.get("chronicity")
+                or qualifiers.get("duration")
+            )
+            regions = self._normalize_to_set(
+                qualifiers.get("region") or qualifiers.get("brain_region") or qualifiers.get("anatomy")
+            )
+            behaviours = self._normalize_to_set(qualifiers.get("behaviour") or qualifiers.get("behavior_tag"))
+
+            for node_id in (edge.subject, edge.object):
+                entry = _entry(node_id)
+                entry["species"].update(species)
+                entry["timecourse"].update(timecourse)
+                entry["regions"].update(regions)
+                entry["behaviors"].update(behaviours)
+                if edge.confidence is not None:
+                    entry["confidence"].append(float(edge.confidence))
+                for evidence in edge.evidence:
+                    annotations = getattr(evidence, "annotations", {})
+                    if not isinstance(annotations, dict):
+                        continue
+                    entry["species"].update(self._normalize_to_set(annotations.get("species")))
+                    entry["timecourse"].update(self._normalize_to_set(annotations.get("timecourse")))
+                    entry["regions"].update(self._normalize_to_set(annotations.get("region")))
+                    entry["behaviors"].update(self._normalize_to_set(annotations.get("behavior")))
+                    conf = annotations.get("confidence")
+                    if conf is not None:
+                        try:
+                            entry["confidence"].append(float(conf))
+                        except (TypeError, ValueError):  # pragma: no cover - defensive
+                            pass
+        return context
+
+    def _contextual_weight(
+        self,
+        subject: str,
+        object_: str,
+        context: Mapping[str, Dict[str, object]],
+    ) -> Tuple[float, str]:
+        entries = [context.get(subject, {}), context.get(object_, {})]
+        weight = 1.0
+        labels: List[str] = []
+
+        def _apply(entry: Mapping[str, object]) -> None:
+            nonlocal weight, labels
+            species = entry.get("species", set())
+            if isinstance(species, set):
+                species_lower = {str(item).lower() for item in species}
+                if "homo sapiens" in species_lower:
+                    weight += 0.12
+                    labels.append("human data")
+                elif species_lower:
+                    weight += 0.05
+                    labels.append("preclinical data")
+            timecourse = entry.get("timecourse", set())
+            if isinstance(timecourse, set):
+                joined = ",".join(str(item).lower() for item in timecourse)
+                if "chronic" in joined or "longitudinal" in joined:
+                    weight += 0.08
+                    labels.append("chronic evidence")
+                elif "acute" in joined:
+                    weight += 0.02
+            regions = entry.get("regions", set())
+            if isinstance(regions, set):
+                limbic = {"nucleus accumbens", "vta", "ventral tegmental area", "mpfc", "amygdala"}
+                region_lower = {str(item).lower() for item in regions}
+                if limbic & region_lower:
+                    weight += 0.05
+                    labels.append("limbic circuitry")
+            behaviors = entry.get("behaviors", set())
+            if isinstance(behaviors, set) and behaviors:
+                weight += 0.03
+                labels.append("behavioural tagging")
+            confidence = entry.get("confidence", [])
+            if isinstance(confidence, list) and confidence:
+                mean_conf = float(sum(confidence) / len(confidence))
+                weight += 0.05 * (mean_conf - 0.5)
+
+        for entry in entries:
+            if entry:
+                _apply(entry)
+
+        weight = float(max(0.6, min(1.6, weight)))
+        description = ", ".join(dict.fromkeys(labels)) if labels else ""
+        return weight, description
+
+    @staticmethod
+    def _normalize_to_set(value: object) -> set[str]:
+        if value is None:
+            return set()
+        if isinstance(value, str):
+            cleaned = value.strip()
+            return {cleaned} if cleaned else set()
+        if isinstance(value, (list, tuple, set)):
+            result: set[str] = set()
+            for item in value:
+                result.update(EmbeddingGapFinder._normalize_to_set(item))
+            return result
+        return {str(value)}
 
 
 __all__ = [

@@ -110,6 +110,8 @@ def test_embedding_gap_predictions_rank_expected_edge() -> None:
     assert target_report.embedding_score < 0
     assert target_report.predicate == BiolinkPredicate.AFFECTS
     assert reports.index(target_report) <= 3
+    assert target_report.metadata.get("context_weight") is not None
+    assert "context_label" in target_report.metadata
 
 
 def test_gap_report_includes_causal_summary_and_literature() -> None:
@@ -122,3 +124,4 @@ def test_gap_report_includes_causal_summary_and_literature() -> None:
     assert report.causal_confidence is not None and report.causal_confidence > 0.5
     assert report.counterfactual_summary is not None and receptor_id in report.counterfactual_summary
     assert report.literature and "openalex.org/W123" in report.literature[0]
+    assert report.metadata.get("context_weight")

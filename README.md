@@ -122,6 +122,60 @@ If you later need the optional toolkits, switch the service to the Docker stack
 or run the install step inside a job that preinstalls `gfortran`, `cmake` and
 `libblas-dev`.
 
+### Zero-cost edge + database stack
+
+You can run the full stack on free tiers by pairing the API with Cloudflare and
+serverless databases:
+
+1. **Frontend.** Deploy the React bundle to [Cloudflare Pages][cf-pages] (free,
+   unlimited requests). Pages can also host the static NiiVue shader assets.
+2. **API.** Use [Cloudflare Workers][cf-workers] to proxy requests to a Render
+   instance or to a lightweight container running the FastAPI app. The backend
+   reads its connection info from environment variables, so Workers KV can store
+   secrets safely.
+3. **Graph storage.** Point the backend at a free [Neo4j Aura][aura] instance by
+   setting `GRAPH_BACKEND=neo4j` and `GRAPH_URI=neo4j+s://...`. Mirror writes to
+   ArangoDB (or any document store) with the new mirror syntax:
+
+   ```bash
+   GRAPH_BACKEND=neo4j
+   GRAPH_URI=neo4j+s://<your-host>
+   GRAPH_USERNAME=<user>
+   GRAPH_PASSWORD=<password>
+   GRAPH_MIRROR_A_BACKEND=arangodb
+   GRAPH_MIRROR_A_URI=https://<your-arango-host>
+   GRAPH_MIRROR_A_DATABASE=brainos
+   ```
+
+   `GraphConfig` automatically creates a composite store that keeps the Aura
+   graph and the Arango document view in sync.
+4. **Vectors and documents.** [Supabase][supabase] or [Neon][neon] provide free
+   Postgres/pgvector tiers; the ingestion jobs can push embeddings there while
+   the main graph stays in Aura.
+
+The `render.yaml` remains for teams already invested in Render, but the Cloudflare
+setup gives you an entirely free footprint for demos and day-to-day research.
+
+### Automated ingestion runs
+
+`backend/graph/cli.py` exposes the ingestion pipeline as a CLI:
+
+```bash
+python -m backend.graph.cli ingest --job ChEMBL --limit 100
+```
+
+Jobs honour cooldown windows via the new `IngestionOrchestrator`, and state is
+persisted to `backend/graph/data/ingestion_state.json`. A scheduled GitHub
+Action (`.github/workflows/ingestion.yml`) executes `python -m
+backend.graph.cli ingest --limit 50` every morning (UTC) so Aura/Arango mirrors
+stay fresh without manual intervention.
+
+[cf-pages]: https://developers.cloudflare.com/pages/
+[cf-workers]: https://developers.cloudflare.com/workers/
+[aura]: https://neo4j.com/cloud/aura/
+[supabase]: https://supabase.com
+[neon]: https://neon.tech
+
 ## Frontend data hooks
 
 All React components talk to the backend through composable hooks in

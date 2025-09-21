@@ -41,6 +41,20 @@ The high level metrics considered by the simulation are:
     values mean good sleep with robust rhythms, low values represent
     insomnia or disrupted sleep architecture.
 
+``social_affiliation``
+    Prosocial bonding, attachment and affiliative motivation.  Positive
+    values promote social approach, negative values bias towards
+    withdrawal.
+
+``exploration``
+    Tendency to explore novel stimuli and environments.  Positive values
+    favour exploration whereas negative values foster behavioural
+    inhibition.
+
+``salience``
+    Salience tagging for emotionally relevant cues.  Higher values mean
+    stronger cue-reactivity and attentional capture.
+
 Each receptor entry contains a ``weights`` dictionary mapping these
 metrics to per‑unit activation weights.  Positive weights increase
 the associated metric, negative weights decrease it.  The magnitude
@@ -70,6 +84,9 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
             "cognitive_flexibility": -0.2,
             "anxiety": 0.4,
             "sleep_quality": -0.1,
+            "social_affiliation": -0.25,
+            "exploration": -0.4,
+            "salience": 0.18,
         },
         "description": "Gq‑coupled receptor; activation reduces DA burst via VTA GABA INs and raises effort cost; chronic activation increases apathy and blunts reward.",
     },
@@ -81,6 +98,9 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
             "cognitive_flexibility": 0.0,
             "anxiety": 0.1,
             "sleep_quality": 0.0,
+            "social_affiliation": -0.05,
+            "exploration": -0.2,
+            "salience": 0.15,
         },
         "description": "Gi/o heteroreceptor; presynaptic filter for glutamate and GABA inputs; can dampen phasic drive but sometimes disinhibit DA via VTA GABA terminals depending on circuit.",
     },
@@ -92,6 +112,9 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
             "cognitive_flexibility": 0.4,
             "anxiety": 0.3,
             "sleep_quality": -0.2,
+            "social_affiliation": 0.05,
+            "exploration": 0.3,
+            "salience": 0.35,
         },
         "description": "Gq‑coupled cortical receptor; acute activation enhances glutamatergic output and plasticity; chronic over‑activation may cause anxiety or agitation.",
     },
@@ -103,6 +126,9 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
             "cognitive_flexibility": -0.2,
             "anxiety": 0.2,
             "sleep_quality": -0.3,
+            "social_affiliation": -0.15,
+            "exploration": -0.25,
+            "salience": 0.22,
         },
         "description": "Ionotropic cation channel; located on interneurons; activation produces fast inhibitory postsynaptic currents; linked to nausea and cognitive fog.",
     },
@@ -114,6 +140,9 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
             "cognitive_flexibility": 0.3,
             "anxiety": 0.1,
             "sleep_quality": 0.3,
+            "social_affiliation": 0.15,
+            "exploration": 0.25,
+            "salience": 0.1,
         },
         "description": "Gs‑coupled receptor enriched in thalamus, hippocampus and PFC; regulates circadian phase, dendritic growth and pattern separation; antagonists display antidepressant effects in rodents.",
     },
@@ -125,6 +154,9 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
             "cognitive_flexibility": 0.1,
             "anxiety": -0.4,
             "sleep_quality": 0.2,
+            "social_affiliation": 0.25,
+            "exploration": 0.18,
+            "salience": -0.12,
         },
         "description": "Gi/o coupled receptor; expressed somatodendritically on raphe (autoreceptor) and postsynaptically in cortex and hippocampus; agonism reduces anxiety and releases cortical inhibition.",
     },
@@ -136,8 +168,81 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
             "cognitive_flexibility": 0.1,
             "anxiety": -0.1,
             "sleep_quality": 0.4,
+            "social_affiliation": 0.05,
+            "exploration": 0.05,
+            "salience": -0.05,
         },
         "description": "Gi/o coupled melatonin receptor; synchronises circadian rhythms; agonism improves sleep architecture and indirectly lifts mood; antagonists unknown clinically.",
+    },
+    "MOR": {
+        "weights": {
+            "drive": 0.35,
+            "apathy": -0.45,
+            "motivation": 0.4,
+            "cognitive_flexibility": 0.1,
+            "anxiety": -0.3,
+            "sleep_quality": 0.15,
+            "social_affiliation": 0.6,
+            "exploration": 0.2,
+            "salience": -0.05,
+        },
+        "description": "μ-opioid receptor; hedonic hotspot engagement promotes social bonding, warmth and motivation; antagonism blunts attachment and reward sensitivity.",
+    },
+    "A2A": {
+        "weights": {
+            "drive": -0.2,
+            "apathy": 0.3,
+            "motivation": -0.25,
+            "cognitive_flexibility": 0.1,
+            "anxiety": 0.05,
+            "sleep_quality": -0.05,
+            "social_affiliation": -0.1,
+            "exploration": -0.2,
+            "salience": 0.15,
+        },
+        "description": "Striatal adenosine A2A receptor; dampens D2 signalling and raises effort cost; antagonism (e.g. caffeine) can restore drive in striatal circuits.",
+    },
+    "A2A-D2": {
+        "weights": {
+            "drive": 0.25,
+            "apathy": -0.25,
+            "motivation": 0.3,
+            "cognitive_flexibility": 0.15,
+            "anxiety": -0.1,
+            "sleep_quality": 0.05,
+            "social_affiliation": 0.2,
+            "exploration": 0.35,
+            "salience": 0.28,
+        },
+        "description": "A2A–D2 heteromer integrating adenosine and dopamine tone; stabilises motivational gating and shapes goal-directed exploration in ventral striatum.",
+    },
+    "ACh-BLA": {
+        "weights": {
+            "drive": 0.1,
+            "apathy": -0.1,
+            "motivation": 0.2,
+            "cognitive_flexibility": 0.15,
+            "anxiety": 0.18,
+            "sleep_quality": -0.05,
+            "social_affiliation": 0.12,
+            "exploration": 0.05,
+            "salience": 0.45,
+        },
+        "description": "Basolateral amygdala cholinergic burst; heightens cue salience and social relevance learning during emotionally charged events.",
+    },
+    "OXTR": {
+        "weights": {
+            "drive": 0.05,
+            "apathy": -0.1,
+            "motivation": 0.15,
+            "cognitive_flexibility": 0.05,
+            "anxiety": -0.25,
+            "sleep_quality": 0.05,
+            "social_affiliation": 0.55,
+            "exploration": 0.1,
+            "salience": 0.12,
+        },
+        "description": "Oxytocin receptor; facilitates social bonding, trust and affiliation particularly in limbic-prefrontal loops.",
     },
     # You can extend this dictionary with additional receptors or neuromodulators.
 }
@@ -208,6 +313,10 @@ def canonical_receptor_name(name: str) -> str:
 
     if compact.startswith("5HT"):
         compact = "5-HT" + compact[3:]
+    elif compact.startswith("HTR"):
+        candidate = "5-HT" + compact[3:]
+        if candidate in RECEPTORS:
+            return candidate
     compact = compact.replace("--", "-")
     if compact in RECEPTORS:
         return compact

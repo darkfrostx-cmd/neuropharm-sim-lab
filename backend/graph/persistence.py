@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Sequence
@@ -17,6 +18,9 @@ except Exception:  # pragma: no cover - optional dependency
     ArangoClient = None  # type: ignore
 
 from .models import BiolinkEntity, BiolinkPredicate, Edge, Evidence, Node, merge_evidence
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _safe_float(value: Any) -> float | None:
@@ -213,6 +217,64 @@ class GraphStore:
         """Return all edges stored in the backend."""
 
         raise NotImplementedError
+
+
+class CompositeGraphStore(GraphStore):
+    """Replicate writes to multiple stores while reading from the primary."""
+
+    def __init__(self, primary: GraphStore, mirrors: Sequence[GraphStore]) -> None:
+        if not mirrors:
+            raise ValueError("CompositeGraphStore requires at least one mirror store")
+        self.primary = primary
+        self.mirrors = list(mirrors)
+
+    def upsert_nodes(self, nodes: Iterable[Node]) -> None:
+        materialized = list(nodes)
+        if not materialized:
+            return
+        self.primary.upsert_nodes(materialized)
+        for mirror in self.mirrors:
+            try:
+                mirror.upsert_nodes(materialized)
+            except Exception as exc:  # pragma: no cover - dependent on remote service
+                LOGGER.warning("Mirror %s failed to upsert nodes: %s", mirror.__class__.__name__, exc)
+
+    def upsert_edges(self, edges: Iterable[Edge]) -> None:
+        materialized = list(edges)
+        if not materialized:
+            return
+        self.primary.upsert_edges(materialized)
+        for mirror in self.mirrors:
+            try:
+                mirror.upsert_edges(materialized)
+            except Exception as exc:  # pragma: no cover - dependent on remote service
+                LOGGER.warning("Mirror %s failed to upsert edges: %s", mirror.__class__.__name__, exc)
+
+    def get_node(self, node_id: str) -> Node | None:
+        return self.primary.get_node(node_id)
+
+    def get_edge(self, subject: str, predicate: str, object_: str) -> Edge | None:
+        return self.primary.get_edge(subject, predicate, object_)
+
+    def get_edge_evidence(
+        self,
+        subject: str | None = None,
+        predicate: str | None = None,
+        object_: str | None = None,
+    ) -> List[Edge]:
+        return self.primary.get_edge_evidence(subject=subject, predicate=predicate, object_=object_)
+
+    def neighbors(self, node_id: str, depth: int = 1, limit: int = 25) -> GraphFragment:
+        return self.primary.neighbors(node_id, depth=depth, limit=limit)
+
+    def find_gaps(self, focus_nodes: Sequence[str]) -> List[GraphGap]:
+        return self.primary.find_gaps(focus_nodes)
+
+    def all_nodes(self) -> Sequence[Node]:
+        return self.primary.all_nodes()
+
+    def all_edges(self) -> Sequence[Edge]:
+        return self.primary.all_edges()
 
 
 class InMemoryGraphStore(GraphStore):

@@ -15,6 +15,16 @@ from typing import Sequence
 
 import numpy as np
 
+try:  # pragma: no cover - optional dependency
+    import pandas as pd  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    pd = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency
+    from dowhy import CausalModel  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    CausalModel = None  # type: ignore
+
 
 @dataclass(slots=True)
 class CausalSummary:
@@ -31,12 +41,36 @@ class CausalSummary:
 
 
 class CausalEffectEstimator:
-    """Estimate treatment effects from observational samples."""
+    """Estimate treatment effects using DoWhy when available."""
 
     def __init__(self, minimum_samples: int = 2) -> None:
         self.minimum_samples = minimum_samples
 
     def estimate_effect(
+        self,
+        treatment_values: Sequence[float],
+        outcome_values: Sequence[float],
+        treatment_name: str,
+        outcome_name: str,
+    ) -> CausalSummary | None:
+        base_summary = self._difference_in_means_summary(
+            treatment_values, outcome_values, treatment_name, outcome_name
+        )
+        if base_summary is None:
+            return None
+        dowhy_summary = self._dowhy_summary(
+            treatment_values,
+            outcome_values,
+            treatment_name,
+            outcome_name,
+            base_summary,
+        )
+        return dowhy_summary or base_summary
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _difference_in_means_summary(
         self,
         treatment_values: Sequence[float],
         outcome_values: Sequence[float],
@@ -68,9 +102,9 @@ class CausalEffectEstimator:
             t_stat = abs(effect) / se
             confidence = float(1 / (1 + math.exp(-t_stat)))
         description = (
-            f"{treatment_name} is estimated to cause a {direction} of {effect:.3f} "
-            f"in {outcome_name} (confidence {confidence:.2f}, n_treated={treated_outcomes.size}, "
-            f"n_control={control_outcomes.size})."
+            f"Difference-in-means suggests a {direction} of {effect:.3f} in {outcome_name} "
+            f"when manipulating {treatment_name} (confidence {confidence:.2f}, "
+            f"n_treated={treated_outcomes.size}, n_control={control_outcomes.size})."
         )
         return CausalSummary(
             treatment=treatment_name,
@@ -80,6 +114,66 @@ class CausalEffectEstimator:
             confidence=confidence,
             n_treated=int(treated_outcomes.size),
             n_control=int(control_outcomes.size),
+            description=description,
+        )
+
+    def _dowhy_summary(
+        self,
+        treatment_values: Sequence[float],
+        outcome_values: Sequence[float],
+        treatment_name: str,
+        outcome_name: str,
+        base_summary: CausalSummary,
+    ) -> CausalSummary | None:
+        if CausalModel is None or pd is None:  # pragma: no cover - optional dependency
+            return None
+        if base_summary.n_treated < self.minimum_samples or base_summary.n_control < self.minimum_samples:
+            return None
+        try:
+            frame = pd.DataFrame(
+                {
+                    "treatment": list(treatment_values),
+                    "outcome": list(outcome_values),
+                }
+            )
+            model = CausalModel(
+                data=frame,
+                treatment="treatment",
+                outcome="outcome",
+                graph="digraph { treatment -> outcome; }",
+            )
+            identified = model.identify_effect()
+            estimate = model.estimate_effect(identified, method_name="backdoor.linear_regression")
+            effect_value = float(getattr(estimate, "value", 0.0))
+        except Exception:  # pragma: no cover - depends on optional dependency
+            return None
+
+        direction = "increase" if effect_value > 0 else "decrease" if effect_value < 0 else "neutral"
+        base_confidence = float(base_summary.confidence)
+        confidence = float(max(base_confidence, min(0.95, 0.6 + min(0.3, abs(effect_value)))))
+        description = (
+            f"DoWhy linear regression estimates a {direction} of {effect_value:.3f} in {outcome_name} "
+            f"when manipulating {treatment_name}. {base_summary.description}"
+        )
+
+        try:  # pragma: no cover - optional dependency
+            refutation = model.refute_estimate(identified, estimate, method_name="random_common_cause")
+            new_effect = getattr(refutation, "new_effect", None)
+            if new_effect is not None:
+                shift = abs(float(new_effect) - effect_value)
+                confidence = float(max(confidence, min(0.95, 0.65 + max(0.0, 0.2 - shift))))
+                description += f" Refutation via random common cause altered the effect by {shift:.3f}."
+        except Exception:
+            pass
+
+        return CausalSummary(
+            treatment=treatment_name,
+            outcome=outcome_name,
+            effect=effect_value,
+            direction=direction,
+            confidence=confidence,
+            n_treated=base_summary.n_treated,
+            n_control=base_summary.n_control,
             description=description,
         )
 

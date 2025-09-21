@@ -271,7 +271,12 @@ class GapRequest(BaseModel):
 class GapDescriptor(BaseModel):
     subject: str
     object: str
+    predicate: str | None = None
     reason: str
+    embedding_score: float | None = None
+    impact_score: float | None = None
+    context: Dict[str, Any] = Field(default_factory=dict)
+    literature: Sequence[str] = Field(default_factory=list)
     uncertainty: float = Field(default=1.0, ge=0.0, le=1.0)
 
 

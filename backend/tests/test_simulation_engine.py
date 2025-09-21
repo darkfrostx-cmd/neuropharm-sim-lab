@@ -1,5 +1,6 @@
 import math
 
+from backend.engine.receptors import canonical_receptor_name
 from backend.simulation import (
     EngineRequest,
     ReceptorEngagement,
@@ -36,6 +37,7 @@ def test_engine_chronic_ssri_profile():
 
     assert result.timepoints[-1] >= 168.0
     assert "DriveInvigoration" in result.scores
+    assert "SocialAffiliation" in result.scores
     assert len(result.timepoints) == len(result.trajectories["plasma_concentration"])
     assert 0.0 <= result.confidence["DriveInvigoration"] <= 1.0
     assert result.scores["ApathyBlunting"] >= 0.0
@@ -91,8 +93,9 @@ def test_affinity_expression_scaling_modulates_weights():
     low_result = engine.run(low_request)
     high_result = engine.run(high_request)
 
+    canonical = canonical_receptor_name("HTR1A")
     assert (
-        high_result.module_summaries["receptor_inputs"]["HTR1A"]["kg_weight"]
-        > low_result.module_summaries["receptor_inputs"]["HTR1A"]["kg_weight"]
+        high_result.module_summaries["receptor_inputs"][canonical]["kg_weight"]
+        > low_result.module_summaries["receptor_inputs"][canonical]["kg_weight"]
     )
     assert high_result.scores["DriveInvigoration"] >= low_result.scores["DriveInvigoration"]
