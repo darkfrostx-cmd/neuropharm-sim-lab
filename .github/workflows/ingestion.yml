@@ -20,5 +20,15 @@ jobs:
         run: pip install -r backend/requirements.txt
       - name: Execute ingestion plan
         env:
-          GRAPH_BACKEND: memory
+          GRAPH_BACKEND: ${{ secrets.GRAPH_BACKEND }}
+          GRAPH_URI: ${{ secrets.GRAPH_URI }}
+          GRAPH_USERNAME: ${{ secrets.GRAPH_USERNAME }}
+          GRAPH_PASSWORD: ${{ secrets.GRAPH_PASSWORD }}
+          GRAPH_DATABASE: ${{ secrets.GRAPH_DATABASE }}
+          GRAPH_MIRROR_A_BACKEND: ${{ secrets.GRAPH_MIRROR_A_BACKEND }}
+          GRAPH_MIRROR_A_URI: ${{ secrets.GRAPH_MIRROR_A_URI }}
+          GRAPH_MIRROR_A_DATABASE: ${{ secrets.GRAPH_MIRROR_A_DATABASE }}
+          GRAPH_MIRROR_A_USERNAME: ${{ secrets.GRAPH_MIRROR_A_USERNAME }}
+          GRAPH_MIRROR_A_PASSWORD: ${{ secrets.GRAPH_MIRROR_A_PASSWORD }}
+          GRAPH_MIRROR_A_OPT_TLS: ${{ secrets.GRAPH_MIRROR_A_OPT_TLS }}
         run: python -m backend.graph.cli ingest --limit 50
