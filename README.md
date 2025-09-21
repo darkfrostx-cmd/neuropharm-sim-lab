@@ -205,19 +205,16 @@ Jobs honour cooldown windows via the new `IngestionOrchestrator`, and state is
 persisted to `backend/graph/data/ingestion_state.json`. A scheduled GitHub
 Action (`.github/workflows/ingestion.yml`) executes `python -m
 backend.graph.cli ingest --limit 50` every morning (UTC) so Aura/Arango mirrors
-stay fresh without manual intervention. Populate the following GitHub secrets so
-the workflow can authenticate against your managed graph instances:
+stay fresh without manual intervention. Before enabling the workflow, create the
+following GitHub secrets so the runner can reach your managed graph instances:
 
-- `GRAPH_BACKEND`, `GRAPH_URI`, `GRAPH_USERNAME`, `GRAPH_PASSWORD`
-  - Primary Neo4j Aura deployment (e.g. `neo4j+s://<hostname>`).
-- `GRAPH_DATABASE` *(optional)*
-  - Only required when your backend expects an explicit database name.
-- `GRAPH_MIRROR_A_BACKEND`, `GRAPH_MIRROR_A_URI`, `GRAPH_MIRROR_A_DATABASE`
-  - Mirror ArangoDB deployment that receives replicated writes.
-- `GRAPH_MIRROR_A_USERNAME`, `GRAPH_MIRROR_A_PASSWORD`
-  - Credentials for the Arango mirror user.
-- `GRAPH_MIRROR_A_OPT_TLS`
-  - Set to `true` to enforce TLS verification when the mirror requires it.
+| Secret(s) | Required | Purpose |
+| --- | --- | --- |
+| `GRAPH_BACKEND`, `GRAPH_URI`, `GRAPH_USERNAME`, `GRAPH_PASSWORD` | ✔️ | Connection settings for the primary Neo4j Aura deployment (e.g. `neo4j+s://<hostname>`). |
+| `GRAPH_DATABASE` | Optional | Only necessary when your Aura project expects an explicit database name. |
+| `GRAPH_MIRROR_A_BACKEND`, `GRAPH_MIRROR_A_URI`, `GRAPH_MIRROR_A_DATABASE` | ✔️ (if mirroring) | Location of the ArangoDB (or other supported) mirror that receives replicated writes. |
+| `GRAPH_MIRROR_A_USERNAME`, `GRAPH_MIRROR_A_PASSWORD` | ✔️ (if mirroring) | Service credentials for the mirror user. |
+| `GRAPH_MIRROR_A_OPT_TLS` | Optional | Set to `true` to enforce TLS verification when the mirror requires it. |
 
 Add additional `GRAPH_MIRROR_<NAME>_*` secrets if you replicate to more than one
 store; the ingestion CLI automatically discovers them during each run.
