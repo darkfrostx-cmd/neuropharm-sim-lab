@@ -134,10 +134,12 @@ serverless databases:
    reads its connection info from environment variables, so Workers KV can store
    secrets safely.
 3. **Graph storage.** Point the backend at a free [Neo4j Aura][aura] instance by
-   setting `GRAPH_BACKEND=neo4j` and `GRAPH_URI=neo4j+s://...`. Mirror writes to
-   ArangoDB (or any document store) with the new mirror syntax:
+   setting `GRAPH_BACKEND=neo4j` and `GRAPH_URI=neo4j+s://...`. Install the
+   backend requirements so the Neo4j and ArangoDB clients are available, then
+   mirror writes to ArangoDB (or any document store) with the new mirror syntax:
 
    ```bash
+   pip install -r backend/requirements.txt
    GRAPH_BACKEND=neo4j
    GRAPH_URI=neo4j+s://<your-host>
    GRAPH_USERNAME=<user>
