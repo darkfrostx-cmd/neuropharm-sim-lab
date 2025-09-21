@@ -25,6 +25,8 @@ from typing import Dict, Mapping, Sequence
 import numpy as np
 import numpy.typing as npt
 
+from ._integration import trapezoid_integral
+
 try:  # pragma: no cover - optional dependency
     from pysb import Initial, Model, Monomer, Observable, Parameter, Rule  # type: ignore
     from pysb.simulator import ScipyOdeSimulator  # type: ignore
@@ -176,7 +178,7 @@ def simulate_cascade(params: MolecularCascadeParams) -> MolecularCascadeResult:
 
     transient_peak = float(np.max(mean_activity))
     steady_state = float(mean_activity[-1])
-    auc = float(np.trapz(mean_activity, time))
+    auc = trapezoid_integral(mean_activity, time)
     duration = float(time[-1] - time[0])
     activation_index = float(auc / duration) if duration > 0 else steady_state
 

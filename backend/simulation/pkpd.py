@@ -10,6 +10,8 @@ from typing import Dict, Mapping
 import numpy as np
 import numpy.typing as npt
 
+from ._integration import trapezoid_integral
+
 try:  # pragma: no cover - optional dependency
     import ospsuite  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
@@ -74,9 +76,9 @@ def _simulate_with_ospsuite(params: PKPDParameters, time: npt.NDArray[np.float64
     brain = np.interp(time, simulation.time, simulation.brain_concentration)
 
     summary = {
-        "auc": float(np.trapz(plasma, time)),
+        "auc": trapezoid_integral(plasma, time),
         "cmax": float(np.max(plasma)),
-        "exposure_index": float(np.trapz(brain, time) / (params.simulation_hours + 1e-6)),
+        "exposure_index": trapezoid_integral(brain, time) / (params.simulation_hours + 1e-6),
         "duration_h": float(params.simulation_hours),
         "regimen": params.regimen,
         "backend": "ospsuite",
@@ -124,9 +126,9 @@ def _two_compartment_model(params: PKPDParameters) -> PKPDProfile:
         plasma[idx] = max(0.0, plasma_prev + dt * dpdt)
         brain[idx] = max(0.0, brain_prev + dt * dbdt)
 
-    auc = float(np.trapz(plasma, time))
+    auc = trapezoid_integral(plasma, time)
     cmax = float(np.max(plasma)) if plasma.size else 0.0
-    exposure_index = float(np.trapz(brain, time) / (params.simulation_hours + 1e-6))
+    exposure_index = trapezoid_integral(brain, time) / (params.simulation_hours + 1e-6)
 
     summary: Dict[str, float | str] = {
         "auc": auc,
