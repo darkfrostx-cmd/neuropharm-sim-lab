@@ -155,6 +155,8 @@ def normalize_identifier(category: BiolinkEntity, identifier: str) -> str:
     identifier = identifier.strip()
     if not identifier:
         raise ValueError("Empty identifier")
+    if identifier.lower().startswith("http") and category == BiolinkEntity.PUBLICATION:
+        return identifier
     if ":" in identifier and not identifier.lower().startswith("http"):
         prefix, local_id = identifier.split(":", 1)
         prefix = prefix.strip().upper()

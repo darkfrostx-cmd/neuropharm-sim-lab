@@ -69,3 +69,32 @@ def test_adapter_cache_invalidated_on_new_edges():
 
     assert updated.evidence_count > initial.evidence_count
     assert "BindingDB" in updated.evidence_sources
+
+
+def test_adapter_discovers_numeric_hgnc_aliases():
+    store = InMemoryGraphStore()
+    service = GraphService(store=store)
+    adapter = GraphBackedReceptorAdapter(service)
+
+    nodes = [
+        Node(id="CHEMBL:25", name="Sertraline", category=BiolinkEntity.CHEMICAL_SUBSTANCE),
+        Node(id="HGNC:5293", name="HTR2A", category=BiolinkEntity.GENE),
+    ]
+    edges = [
+        Edge(
+            subject="CHEMBL:25",
+            predicate=BiolinkPredicate.INTERACTS_WITH,
+            object="HGNC:5293",
+            confidence=0.75,
+            evidence=[Evidence(source="ChEMBL", reference="PMID:4", confidence=0.8)],
+        )
+    ]
+    service.persist(nodes, edges)
+    adapter.clear_cache()
+
+    identifiers = adapter.identifiers_for("5-HT2A")
+    assert "HGNC:5293" in identifiers
+
+    bundle = adapter.derive("5-HT2A", fallback_weight=0.25, fallback_evidence=0.3)
+    assert bundle.evidence_count >= 1
+    assert bundle.kg_weight > 0.25
