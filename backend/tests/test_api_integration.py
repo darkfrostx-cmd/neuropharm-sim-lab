@@ -116,7 +116,11 @@ async def test_gaps_endpoint_lists_missing_edges(serotonin_graph, client):
     assert response.status_code == 200
     data = response.json()
     assert data["items"]
-    assert "reason" in data["items"][0]
+    gap = data["items"][0]
+    assert "reason" in gap
+    assert "embedding_score" in gap
+    assert "context" in gap and "context_weight" in gap["context"]
+    assert "literature" in gap
 
 
 async def test_gaps_missing_node_returns_error(client):

@@ -75,6 +75,13 @@ def _simulate_with_ospsuite(params: PKPDParameters, time: npt.NDArray[np.float64
     plasma = np.interp(time, simulation.time, simulation.plasma_concentration)
     brain = np.interp(time, simulation.time, simulation.brain_concentration)
 
+    occupancy_profiles: Dict[str, npt.NDArray[np.float64]] = {}
+    for receptor, baseline in params.receptor_occupancy.items():
+        baseline = float(max(1e-3, baseline))
+        kd = max(1e-3, (1.0 - baseline))
+        curve = brain / (brain + kd)
+        occupancy_profiles[receptor] = np.clip(curve, 0.0, 1.0)
+
     summary = {
         "auc": trapezoid_integral(plasma, time),
         "cmax": float(np.max(plasma)),
@@ -82,6 +89,8 @@ def _simulate_with_ospsuite(params: PKPDParameters, time: npt.NDArray[np.float64
         "duration_h": float(params.simulation_hours),
         "regimen": params.regimen,
         "backend": "ospsuite",
+        "occupancy_profile": {name: curve.astype(float).tolist() for name, curve in occupancy_profiles.items()},
+        "terminal_occupancy": {name: float(curve[-1]) for name, curve in occupancy_profiles.items()},
     }
     uncertainty = {
         "pkpd": float(max(0.05, 1.0 - np.clip(params.kg_confidence, 0.0, 1.0))),
@@ -130,13 +139,22 @@ def _two_compartment_model(params: PKPDParameters) -> PKPDProfile:
     cmax = float(np.max(plasma)) if plasma.size else 0.0
     exposure_index = trapezoid_integral(brain, time) / (params.simulation_hours + 1e-6)
 
-    summary: Dict[str, float | str] = {
+    occupancy_profiles: Dict[str, npt.NDArray[np.float64]] = {}
+    for receptor, baseline in params.receptor_occupancy.items():
+        baseline = float(max(1e-3, baseline))
+        kd = max(1e-3, (1.0 - baseline))
+        curve = brain / (brain + kd)
+        occupancy_profiles[receptor] = np.clip(curve, 0.0, 1.0)
+
+    summary: Dict[str, float | str | Dict[str, list[float]]] = {
         "auc": auc,
         "cmax": cmax,
         "exposure_index": exposure_index,
         "duration_h": float(params.simulation_hours),
         "regimen": params.regimen,
         "backend": "analytic",
+        "occupancy_profile": {name: curve.astype(float).tolist() for name, curve in occupancy_profiles.items()},
+        "terminal_occupancy": {name: float(curve[-1]) for name, curve in occupancy_profiles.items()},
     }
     kg_conf = float(np.clip(params.kg_confidence, 0.0, 1.0))
     uncertainty = {

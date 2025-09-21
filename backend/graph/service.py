@@ -5,12 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence
 
-from ..config import DEFAULT_GRAPH_CONFIG, GraphConfig
+from ..config import DEFAULT_GRAPH_CONFIG, GraphBackendSettings, GraphConfig
 from ..reasoning import CausalEffectEstimator, CausalSummary
 from .gaps import EmbeddingConfig, EmbeddingGapFinder, GapReport
 from .ingest_openalex import OpenAlexClient  # type: ignore
 from .models import Edge, Evidence, Node
-from .persistence import GraphFragment, GraphStore, InMemoryGraphStore
+from .persistence import CompositeGraphStore, GraphFragment, GraphStore, InMemoryGraphStore
 
 
 @dataclass(slots=True)
@@ -44,17 +44,25 @@ class GraphService:
         self._literature_client = literature_client
 
     def _create_store(self, config: GraphConfig) -> GraphStore:
-        if config.backend == "memory":
+        primary = self._create_single_store(config.primary)
+        if config.mirrors:
+            mirrors = [self._create_single_store(mirror) for mirror in config.mirrors]
+            return CompositeGraphStore(primary, mirrors)
+        return primary
+
+    def _create_single_store(self, settings: GraphBackendSettings) -> GraphStore:
+        backend = settings.normalized_backend()
+        if backend == "memory":
             return InMemoryGraphStore()
-        if config.backend == "neo4j":  # pragma: no cover - requires driver
+        if backend == "neo4j":  # pragma: no cover - requires driver
             from .persistence import Neo4jGraphStore
 
-            return Neo4jGraphStore(config.uri or "", config.username, config.password)
-        if config.backend == "arangodb":  # pragma: no cover - requires driver
+            return Neo4jGraphStore(settings.uri or "", settings.username, settings.password)
+        if backend == "arangodb":  # pragma: no cover - requires driver
             from .persistence import ArangoGraphStore
 
-            return ArangoGraphStore(config.uri or "", config.username, config.password, config.database)
-        raise ValueError(f"Unsupported graph backend: {config.backend}")
+            return ArangoGraphStore(settings.uri or "", settings.username, settings.password, settings.database)
+        raise ValueError(f"Unsupported graph backend: {backend}")
 
     # ------------------------------------------------------------------
     # Evidence lookup utilities
@@ -95,6 +103,7 @@ class GraphService:
                     causal_confidence=causal_summary.confidence if causal_summary else None,
                     counterfactual_summary=causal_summary.description if causal_summary else None,
                     literature=literature,
+                    metadata=dict(candidate.metadata),
                 )
             )
         return reports

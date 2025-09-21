@@ -193,8 +193,11 @@ def bootstrap_graph(
     """Ensure the graph has baseline content before serving requests."""
 
     store = graph_service.store
-    if not isinstance(store, InMemoryGraphStore) and graph_service.config.backend != "memory":
-        LOGGER.info("Graph backend %s configured; skipping automatic bootstrap", graph_service.config.backend)
+    if not graph_service.config.is_memory_only and not _store_is_empty(store):
+        LOGGER.info(
+            "Graph backend %s already initialised; automatic bootstrap skipped",
+            graph_service.config.backend,
+        )
         return []
 
     if not _store_is_empty(store):

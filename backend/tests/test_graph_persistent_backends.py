@@ -17,13 +17,82 @@ from backend.graph.models import (
     Evidence,
     Node,
 )
-from backend.graph.persistence import ArangoGraphStore, Neo4jGraphStore
+from backend.graph.persistence import (
+    ArangoGraphStore,
+    CompositeGraphStore,
+    GraphStore,
+    InMemoryGraphStore,
+    Neo4jGraphStore,
+)
 from backend.graph.service import GraphService
 from backend.main import app
 from backend.simulation.kg_adapter import GraphBackedReceptorAdapter
 
 
 NOW = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+
+class RecordingGraphStore(GraphStore):
+    """In-memory mirror used to assert composite replication."""
+
+    def __init__(self) -> None:
+        self.delegate = InMemoryGraphStore()
+        self.seen_nodes: List[Node] = []
+        self.seen_edges: List[Edge] = []
+
+    def upsert_nodes(self, nodes: Iterable[Node]) -> None:
+        items = list(nodes)
+        self.seen_nodes.extend(items)
+        self.delegate.upsert_nodes(items)
+
+    def upsert_edges(self, edges: Iterable[Edge]) -> None:
+        items = list(edges)
+        self.seen_edges.extend(items)
+        self.delegate.upsert_edges(items)
+
+    def get_node(self, node_id: str) -> Node | None:
+        return self.delegate.get_node(node_id)
+
+    def get_edge(self, subject: str, predicate: str, object_: str) -> Edge | None:
+        return self.delegate.get_edge(subject, predicate, object_)
+
+    def get_edge_evidence(
+        self,
+        subject: str | None = None,
+        predicate: str | None = None,
+        object_: str | None = None,
+    ) -> List[Edge]:
+        return self.delegate.get_edge_evidence(subject=subject, predicate=predicate, object_=object_)
+
+    def neighbors(self, node_id: str, depth: int = 1, limit: int = 25):
+        return self.delegate.neighbors(node_id, depth=depth, limit=limit)
+
+    def find_gaps(self, focus_nodes: Sequence[str]):
+        return self.delegate.find_gaps(focus_nodes)
+
+    def all_nodes(self) -> Sequence[Node]:
+        return self.delegate.all_nodes()
+
+    def all_edges(self) -> Sequence[Edge]:
+        return self.delegate.all_edges()
+
+
+def test_composite_store_replicates_writes():
+    primary = InMemoryGraphStore()
+    mirror = RecordingGraphStore()
+    composite = CompositeGraphStore(primary, [mirror])
+
+    nodes = _build_nodes()
+    edges = _build_edges()
+
+    composite.upsert_nodes(nodes)
+    composite.upsert_edges(edges)
+
+    assert {node.id for node in mirror.seen_nodes} == {node.id for node in nodes}
+    assert {edge.key for edge in mirror.seen_edges} == {edge.key for edge in edges}
+    assert composite.get_node("HGNC:HTR1A") is not None
+    assert mirror.get_node("HGNC:HTR1A") is not None
+    assert composite.get_edge("CHEMBL:25", BiolinkPredicate.INTERACTS_WITH.value, "HGNC:HTR1A")
 
 
 def _build_nodes() -> List[Node]:
@@ -439,4 +508,7 @@ async def test_persistent_backends_drive_endpoints(persistent_backend_services, 
     assert response.status_code == 200
     gaps = response.json()
     assert gaps["items"]
-    assert gaps["items"][0]["reason"].startswith("No related_to edge")
+    first_gap = gaps["items"][0]
+    assert first_gap["reason"].startswith("No related_to edge")
+    assert "embedding_score" in first_gap
+    assert "context_weight" in first_gap["context"]
