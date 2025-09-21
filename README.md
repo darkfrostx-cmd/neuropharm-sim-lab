@@ -117,6 +117,9 @@ the repo and selecting “Use existing `render.yaml`”. Render will:
 - Install only `backend/requirements.txt` to avoid the PySB/ospsuite build
   failures shown in the earlier screenshots.
 - Launch Uvicorn with `backend.main:app` on the assigned `$PORT`.
+- Ship the Neo4j (`neo4j>=5.13.0`) and ArangoDB (`python-arango>=7.5.5`) drivers by
+  default so managed Aura and Oasis clusters work without extra installs. Aura
+  refuses older 4.x drivers, so keep the requirement on the 5.x line or newer.
 
 If you later need the optional toolkits, switch the service to the Docker stack
 or run the install step inside a job that preinstalls `gfortran`, `cmake` and
@@ -148,6 +151,10 @@ serverless databases:
    GRAPH_MIRROR_A_URI=https://<your-arango-host>
    GRAPH_MIRROR_A_DATABASE=brainos
    ```
+
+   The bundled `python-arango>=7.5.5` release contains the TLS/SNI fixes that
+   ArangoDB Oasis and other managed offerings require. If you override the
+   version pin, keep it at 7.5 or newer so certificate negotiation succeeds.
 
    `GraphConfig` automatically creates a composite store that keeps the Aura
    graph and the Arango document view in sync.
