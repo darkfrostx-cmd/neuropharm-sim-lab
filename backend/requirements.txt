@@ -5,5 +5,7 @@ scipy>=1.8.0
 pydantic>=2.1.1
 requests>=2.31.0
 httpx>=0.27.0
+neo4j>=5.13.0
+python-arango>=7.5.5
 # Optional domain toolkits have been moved to requirements-optional.txt.
 # Install them manually when running the full PySB/OSP/TVB integration stack.
