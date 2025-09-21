@@ -35,6 +35,9 @@ pip install -r backend/requirements.txt
 uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
+The base requirements now ship with the Neo4j (5.x) and python-arango clients so
+managed Aura and Oasis endpoints work without extra installs.
+
 The optional simulation toolkits (PySB, OSPSuite, TVB) pull heavy native wheels.
 Install them only when you need the full PK/PD stack:
 
@@ -87,6 +90,31 @@ npm test -- --watch=false
 script so CI and local runs behave the same way.
 
 ## Deployment notes
+
+### Graph connectivity environment variables
+
+Configure the graph driver through environment variables before deploying to
+Render, Cloudflare Workers or any other hosted stack:
+
+```bash
+GRAPH_BACKEND=neo4j
+GRAPH_URI=neo4j+s://<neo4j-host>
+GRAPH_USERNAME=<neo4j-user>
+GRAPH_PASSWORD=<neo4j-password>
+
+# Optional database selector when your Aura tenancy exposes multiple DBs
+GRAPH_DATABASE=<neo4j-database>
+
+# Mirror a managed ArangoDB instance (e.g. Oasis) alongside Aura
+GRAPH_MIRROR_A_BACKEND=arangodb
+GRAPH_MIRROR_A_URI=https://<arango-host>
+GRAPH_MIRROR_A_DATABASE=<arango-database>
+GRAPH_MIRROR_A_USERNAME=<arango-user>
+GRAPH_MIRROR_A_PASSWORD=<arango-password>
+
+# Enable strict TLS verification when the mirror requires SNI/cert checks
+GRAPH_MIRROR_A_OPT_TLS=true
+```
 
 ### GitHub Pages frontend
 
