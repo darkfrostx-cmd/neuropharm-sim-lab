@@ -2,7 +2,7 @@
   "version": "2025-09-05",
   "nodes": [
     {
-      "id": "CHEMBL25",
+      "id": "CHEMBL:25",
       "name": "Sertraline",
       "category": "biolink:ChemicalSubstance",
       "provided_by": "ChEMBL",
@@ -15,7 +15,7 @@
       }
     },
     {
-      "id": "CHEMBL120",
+      "id": "CHEMBL:120",
       "name": "Fluoxetine",
       "category": "biolink:ChemicalSubstance",
       "provided_by": "ChEMBL",

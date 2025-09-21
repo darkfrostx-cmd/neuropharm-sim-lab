@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Any, Dict, List, Sequence
+import re
+from typing import Any, Dict, Iterable, List, Sequence, Set
 
 from ..engine.receptors import canonical_receptor_name
-from ..graph.models import BiolinkPredicate, Edge
+from ..graph.models import BiolinkPredicate, Edge, Node
 from ..graph.service import GraphService
 
 
@@ -36,6 +37,7 @@ class GraphBackedReceptorAdapter:
         self.default_kg_weight = default_kg_weight
         self.default_evidence = default_evidence
         self._cache: Dict[str, Dict[str, Any]] = {}
+        self._identifier_cache: Dict[str, Sequence[str]] = {}
 
     # ------------------------------------------------------------------
     # Cache management helpers
@@ -44,11 +46,24 @@ class GraphBackedReceptorAdapter:
         """Remove all cached receptor lookups."""
 
         self._cache.clear()
+        self._identifier_cache.clear()
 
     def invalidate(self, receptor: str) -> None:
         """Invalidate cached evidence for a specific receptor."""
 
-        self._cache.pop(canonical_receptor_name(receptor), None)
+        canon = canonical_receptor_name(receptor)
+        self._cache.pop(canon, None)
+        self._identifier_cache.pop(canon, None)
+
+    def identifiers_for(self, receptor: str) -> Sequence[str]:
+        """Return identifier candidates understood by the knowledge graph."""
+
+        canon = canonical_receptor_name(receptor)
+        cached = self._identifier_cache.get(canon)
+        if cached is None:
+            cached = tuple(self._candidate_identifiers(canon))
+            self._identifier_cache[canon] = cached
+        return list(cached)
 
     # ------------------------------------------------------------------
     # Public API
@@ -115,7 +130,7 @@ class GraphBackedReceptorAdapter:
         )
 
     def _compute_raw_metrics(self, canon: str) -> Dict[str, Any]:
-        identifiers = self._candidate_identifiers(canon)
+        identifiers = self.identifiers_for(canon)
         edges = self._collect_edges(identifiers)
 
         affinity_values: List[float] = []
@@ -169,13 +184,84 @@ class GraphBackedReceptorAdapter:
 
     def _candidate_identifiers(self, canon: str) -> Sequence[str]:
         base = canon.strip()
-        candidates = [base, base.replace("-", ""), base.upper()]
+        seeds: List[str] = []
+        if base:
+            seeds.extend([base, base.replace("-", ""), base.upper()])
         compact = base.replace("-", "").upper()
         if compact.startswith("5HT"):
             suffix = compact[3:]
             gene = f"HTR{suffix}"
-            candidates.extend({gene, f"HGNC:{gene}"})
-        return list(dict.fromkeys(filter(None, candidates)))
+            seeds.extend([gene, f"HGNC:{gene}"])
+        aliases = self._discover_graph_aliases(seeds)
+        seeds.extend(sorted(aliases))
+        filtered = [candidate for candidate in seeds if candidate]
+        return list(dict.fromkeys(filtered))
+
+    def _discover_graph_aliases(self, seeds: Sequence[str]) -> Set[str]:
+        store = getattr(self.graph_service, "store", None)
+        if store is None:
+            return set()
+
+        def _tokenise(value: str) -> str:
+            cleaned = re.sub(r"[^A-Za-z0-9]+", "", value.upper())
+            return cleaned
+
+        aliases: Set[str] = set()
+        tokens = {_tokenise(seed) for seed in seeds if seed}
+        tokens.discard("")
+
+        if not tokens:
+            return aliases
+
+        examined: Set[str] = set()
+        for seed in seeds:
+            if not seed:
+                continue
+            try:
+                node = store.get_node(seed)
+            except NotImplementedError:  # pragma: no cover - backend without lookup support
+                node = None
+            if node is None:
+                continue
+            examined.add(node.id)
+            aliases.update(self._aliases_from_node(node))
+            tokens.add(_tokenise(node.id))
+
+        try:
+            iterable: Iterable[Node] = store.all_nodes()
+        except NotImplementedError:  # pragma: no cover - backend without iteration support
+            iterable = ()
+
+        for node in iterable:
+            if node.id in examined:
+                continue
+            node_aliases = self._aliases_from_node(node)
+            node_tokens = {_tokenise(alias) for alias in node_aliases}
+            node_tokens.add(_tokenise(node.id))
+            if node_tokens & tokens:
+                aliases.update(node_aliases)
+                aliases.add(node.id)
+
+        return {alias for alias in aliases if alias}
+
+    @staticmethod
+    def _aliases_from_node(node: Node) -> Set[str]:
+        aliases: Set[str] = {node.id, node.name}
+        aliases.update(node.synonyms)
+        aliases.update(node.xrefs)
+
+        for key in ("hgnc", "hgnc_id", "ensembl", "ensembl_gene", "ncbi", "ncbi_gene", "symbol", "gene_symbol"):
+            value = node.attributes.get(key)
+            if isinstance(value, str):
+                aliases.add(value)
+            elif isinstance(value, (list, tuple, set)):
+                for item in value:
+                    if isinstance(item, str) and item.strip():
+                        aliases.add(item)
+                    elif item is not None:
+                        aliases.add(str(item))
+
+        return {alias.strip() for alias in aliases if isinstance(alias, str) and alias.strip()}
 
     def _collect_edges(self, identifiers: Sequence[str]) -> List[Edge]:
         seen: Dict[tuple[str, str, str], Edge] = {}

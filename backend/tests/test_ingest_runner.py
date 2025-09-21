@@ -30,8 +30,12 @@ def test_load_seed_graph_populates_store():
     assert loaded
     nodes = {node.id for node in store.all_nodes()}
     assert "CHEMBL:25" in nodes
+    assert "https://openalex.org/W1234567890" in nodes
     edges = list(store.all_edges())
     assert any(edge.subject == "CHEMBL:25" for edge in edges)
+    assert service.store.get_node("https://openalex.org/W1234567890") is not None
+    publication_edges = service.get_evidence(subject="https://openalex.org/W1234567890")
+    assert any(summary.edge.object == "HGNC:11068" for summary in publication_edges)
 
 
 def test_bootstrap_uses_plan_when_seed_disabled():

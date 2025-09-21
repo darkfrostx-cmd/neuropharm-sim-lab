@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Set, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -135,17 +135,6 @@ def _fallback_weight(receptor: str) -> float:
 def _fallback_evidence(receptor: str, references: Dict[str, List[Dict[str, str]]]) -> float:
     count = len(references.get(receptor, []))
     return float(min(0.95, 0.45 + 0.1 * count))
-
-
-def _candidate_identifiers(canon: str) -> List[str]:
-    base = canon.strip()
-    candidates = [base, base.replace("-", ""), base.upper()]
-    compact = base.replace("-", "").upper()
-    if compact.startswith("5HT"):
-        suffix = compact[3:]
-        gene = f"HTR{suffix}"
-        candidates.extend({gene, f"HGNC:{gene}"})
-    return list(dict.fromkeys(filter(None, candidates)))
 
 
 @router.post("/predict/effects", response_model=schemas.PredictEffectsResponse)
@@ -313,7 +302,7 @@ def explain_receptor(
         fallback_weight=_fallback_weight(canon),
         fallback_evidence=_fallback_evidence(canon, svc.receptor_references),
     )
-    identifiers = _candidate_identifiers(canon)
+    identifiers = adapter.identifiers_for(canon)
     items: List[schemas.ExplanationEdge] = []
     seen: Set[Tuple[str, str, str, str]] = set()
     if request.direction in {"both", "upstream"}:
