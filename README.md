@@ -205,22 +205,35 @@ Jobs honour cooldown windows via the new `IngestionOrchestrator`, and state is
 persisted to `backend/graph/data/ingestion_state.json`. A scheduled GitHub
 Action (`.github/workflows/ingestion.yml`) executes `python -m
 backend.graph.cli ingest --limit 50` every morning (UTC) so Aura/Arango mirrors
-stay fresh without manual intervention. Populate the following GitHub secrets so
-the workflow can authenticate against your managed graph instances:
+stay fresh without manual intervention. Populate the following GitHub **Secrets**
+(Settings → *Secrets and variables* → *Actions*) so the workflow can
+authenticate against your managed graph instances:
 
-- `GRAPH_BACKEND`, `GRAPH_URI`, `GRAPH_USERNAME`, `GRAPH_PASSWORD`
-  - Primary Neo4j Aura deployment (e.g. `neo4j+s://<hostname>`).
-- `GRAPH_DATABASE` *(optional)*
-  - Only required when your backend expects an explicit database name.
-- `GRAPH_MIRROR_A_BACKEND`, `GRAPH_MIRROR_A_URI`, `GRAPH_MIRROR_A_DATABASE`
-  - Mirror ArangoDB deployment that receives replicated writes.
-- `GRAPH_MIRROR_A_USERNAME`, `GRAPH_MIRROR_A_PASSWORD`
-  - Credentials for the Arango mirror user.
-- `GRAPH_MIRROR_A_OPT_TLS`
-  - Set to `true` to enforce TLS verification when the mirror requires it.
+| Secret | Required? | Purpose |
+| --- | --- | --- |
+| `GRAPH_BACKEND` | Yes | Backend driver for the primary store (e.g. `neo4j`). |
+| `GRAPH_URI` | Yes | Connection string for Aura (`neo4j+s://<hostname>`) or another Neo4j cluster. |
+| `GRAPH_USERNAME` | Yes | Aura/Neo4j username with write access. |
+| `GRAPH_PASSWORD` | Yes | Matching password or generated token. |
+| `GRAPH_DATABASE` | Optional | Explicit database name when the cluster exposes multiple DBs. |
+| `GRAPH_OPT_TLS` | Optional | Set to `true` to force TLS verification when Aura requires strict cert checks. |
+| `GRAPH_MIRROR_A_BACKEND` | Optional | Backend identifier for the first mirror (e.g. `arangodb`). |
+| `GRAPH_MIRROR_A_URI` | Optional | Mirror connection URL such as `https://<arango-host>`. |
+| `GRAPH_MIRROR_A_DATABASE` | Optional | Target database within the mirror instance. |
+| `GRAPH_MIRROR_A_USERNAME` | Optional | Mirror user allowed to upsert nodes/edges. |
+| `GRAPH_MIRROR_A_PASSWORD` | Optional | Password for the mirror user. |
+| `GRAPH_MIRROR_A_OPT_TLS` | Optional | Set to `true` when the mirror enforces TLS/SNI validation. |
 
-Add additional `GRAPH_MIRROR_<NAME>_*` secrets if you replicate to more than one
-store; the ingestion CLI automatically discovers them during each run.
+Add additional `GRAPH_MIRROR_<NAME>_*` secrets if you replicate to more than
+one store; the ingestion CLI automatically discovers them during each run.
+
+After provisioning the secrets, trigger a staging dry-run from **Actions →
+Refresh knowledge graph → Run workflow**. The job output prints a summary for
+each ingestion plan (records processed, nodes created, edges created) so you can
+confirm that data lands in the persistent store before re-enabling the daily
+schedule. For local smoke tests you can export the same variables and run
+`python -m backend.graph.cli ingest --limit 25` to exercise the pipeline without
+waiting for GitHub Actions.
 
 [cf-pages]: https://developers.cloudflare.com/pages/
 [cf-workers]: https://developers.cloudflare.com/workers/
