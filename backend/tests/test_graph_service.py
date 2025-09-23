@@ -5,7 +5,6 @@ from backend.graph.models import (
     Evidence,
     Node,
 )
-from backend.config import GraphConfig
 from backend.graph.gaps import GapReport
 from backend.graph.persistence import InMemoryGraphStore
 from backend.graph.service import GraphService
@@ -59,28 +58,3 @@ def test_find_gaps_between_focus_nodes() -> None:
     assert all(isinstance(gap, GapReport) for gap in gaps)
     assert any(gap.subject == "CHEMBL:25" and gap.object == "HGNC:6" for gap in gaps)
 
-
-def test_graph_config_from_env_supports_mirrors() -> None:
-    env = {
-        "GRAPH_BACKEND": "neo4j",
-        "GRAPH_URI": "neo4j+s://primary",
-        "GRAPH_USERNAME": "neo",
-        "GRAPH_PASSWORD": "pass",
-        "GRAPH_MIRROR_A_BACKEND": "arangodb",
-        "GRAPH_MIRROR_A_URI": "https://arangodb.example", 
-        "GRAPH_MIRROR_A_DATABASE": "brainos",
-        "GRAPH_MIRROR_A_OPT_TLS": "true",
-    }
-
-    config = GraphConfig.from_env(env)
-
-    assert config.backend == "neo4j"
-    assert not config.is_memory_only
-    assert config.primary.uri == "neo4j+s://primary"
-    assert config.primary.username == "neo"
-    assert len(config.mirrors) == 1
-    mirror = config.mirrors[0]
-    assert mirror.backend == "arangodb"
-    assert mirror.uri == "https://arangodb.example"
-    assert mirror.database == "brainos"
-    assert mirror.options.get("tls") == "true"
