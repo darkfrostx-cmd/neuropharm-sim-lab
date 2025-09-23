@@ -21,6 +21,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mechanistic = [
+    "pysb>=1.13.0",
+    "ospsuite>=11.0.0",
+    "tvb-library>=2.8.0",
+]
+# Backwards compatibility with older installation instructions.
 simulation = [
     "pysb>=1.13.0",
     "ospsuite>=11.0.0",
