@@ -8,6 +8,7 @@ from typing import Any, Dict, Iterable, Mapping, Sequence, Literal
 from pydantic import BaseModel, Field
 
 from ..graph.models import BiolinkPredicate, Edge, Evidence, Node
+from ..reasoning import CausalSummary, CounterfactualScenario
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +114,55 @@ class EvidenceHit(BaseModel):
     def from_domain(cls, edge: Edge, evidence: Iterable[Evidence]) -> "EvidenceHit":
         provenance = [EvidenceProvenance.from_domain(ev) for ev in evidence]
         return cls(edge=GraphEdge.from_domain(edge), provenance=provenance)
+
+
+# ---------------------------------------------------------------------------
+# Causal summary schemas
+# ---------------------------------------------------------------------------
+
+
+class CounterfactualEstimate(BaseModel):
+    label: str
+    treatment_value: float
+    predicted_outcome: float
+
+    @classmethod
+    def from_domain(cls, scenario: CounterfactualScenario) -> "CounterfactualEstimate":
+        return cls(
+            label=scenario.label,
+            treatment_value=scenario.treatment_value,
+            predicted_outcome=scenario.predicted_outcome,
+        )
+
+
+class CausalDiagnostics(BaseModel):
+    treatment: str
+    outcome: str
+    effect: float
+    direction: str
+    confidence: float
+    n_treated: int
+    n_control: int
+    description: str
+    assumption_graph: str | None = None
+    counterfactuals: Sequence[CounterfactualEstimate] = Field(default_factory=list)
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_domain(cls, summary: CausalSummary) -> "CausalDiagnostics":
+        return cls(
+            treatment=summary.treatment,
+            outcome=summary.outcome,
+            effect=summary.effect,
+            direction=summary.direction,
+            confidence=summary.confidence,
+            n_treated=summary.n_treated,
+            n_control=summary.n_control,
+            description=summary.description,
+            assumption_graph=summary.assumption_graph,
+            counterfactuals=[CounterfactualEstimate.from_domain(cf) for cf in summary.counterfactuals],
+            diagnostics=dict(summary.diagnostics),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +307,7 @@ class ExplainResponse(BaseModel):
     uncertainty: float | None
     provenance: Sequence[str]
     edges: Sequence[ExplanationEdge]
+    causal: CausalDiagnostics | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +329,9 @@ class GapDescriptor(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict)
     literature: Sequence[str] = Field(default_factory=list)
     uncertainty: float = Field(default=1.0, ge=0.0, le=1.0)
+    counterfactual_summary: str | None = None
+    counterfactuals: Sequence[CounterfactualEstimate] = Field(default_factory=list)
+    causal: CausalDiagnostics | None = None
 
 
 class GapResponse(BaseModel):
@@ -286,6 +340,8 @@ class GapResponse(BaseModel):
 
 __all__ = [
     "Citation",
+    "CounterfactualEstimate",
+    "CausalDiagnostics",
     "ErrorPayload",
     "EvidenceHit",
     "EvidenceProvenance",

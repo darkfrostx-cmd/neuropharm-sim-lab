@@ -119,9 +119,14 @@ def test_gap_report_includes_causal_summary_and_literature() -> None:
     service = GraphService(store=store, literature_client=StubOpenAlexClient())
     reports = service.find_gaps([receptor_id, behaviour_id], top_k=5)
     report = next(report for report in reports if report.subject == receptor_id and report.object == behaviour_id)
+    assert report.causal is not None
     assert report.causal_direction == "increase"
     assert report.causal_effect is not None and report.causal_effect > 0
     assert report.causal_confidence is not None and report.causal_confidence > 0.5
     assert report.counterfactual_summary is not None and receptor_id in report.counterfactual_summary
+    assert report.counterfactuals
+    assert report.assumption_graph is not None and receptor_id in report.assumption_graph
+    assert report.causal.diagnostics
     assert report.literature and "openalex.org/W123" in report.literature[0]
     assert report.metadata.get("context_weight")
+    assert "assumption_graph" in report.metadata

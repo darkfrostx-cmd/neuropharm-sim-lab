@@ -26,6 +26,11 @@ mechanistic = [
     "ospsuite>=11.0.0",
     "tvb-library>=2.8.0",
 ]
+# Causal inference helpers used by the knowledge-graph endpoints.
+causal = [
+    "dowhy>=0.11.1",
+    "econml>=0.14.1",
+]
 # Backwards compatibility with older installation instructions.
 simulation = [
     "pysb>=1.13.0",

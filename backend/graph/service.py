@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence
+from typing import Dict, Iterable, List, Sequence, Set, Tuple
 
 from ..config import (
     DEFAULT_GRAPH_CONFIG,
@@ -50,6 +50,7 @@ class GraphService:
         self._gap_finder = gap_finder or EmbeddingGapFinder(self.store, self._embedding_config)
         self._causal_estimator = causal_estimator or CausalEffectEstimator()
         self._literature_client = literature_client
+        self._label_cache: Dict[str, str] = {}
 
     def _create_store(self, config: GraphConfig) -> GraphStore:
         primary = self._create_single_store(config.primary)
@@ -98,6 +99,12 @@ class GraphService:
         for candidate in candidates:
             causal_summary = self._summarize_causal(candidate.subject, candidate.object)
             literature = self._suggest_literature(candidate.subject, candidate.object)
+            metadata = dict(candidate.metadata)
+            if causal_summary is not None:
+                if causal_summary.assumption_graph:
+                    metadata.setdefault("assumption_graph", causal_summary.assumption_graph)
+                if causal_summary.diagnostics:
+                    metadata.setdefault("causal_diagnostics", dict(causal_summary.diagnostics))
             reports.append(
                 GapReport(
                     subject=candidate.subject,
@@ -106,15 +113,17 @@ class GraphService:
                     embedding_score=candidate.score,
                     impact_score=candidate.impact,
                     reason=candidate.reason,
-                    causal_effect=causal_summary.effect if causal_summary else None,
-                    causal_direction=causal_summary.direction if causal_summary else None,
-                    causal_confidence=causal_summary.confidence if causal_summary else None,
-                    counterfactual_summary=causal_summary.description if causal_summary else None,
+                    causal=causal_summary,
                     literature=literature,
-                    metadata=dict(candidate.metadata),
+                    metadata=metadata,
                 )
             )
         return reports
+
+    def summarize_causal(self, treatment: str, outcome: str) -> CausalSummary | None:
+        """Expose causal diagnostics for API consumers."""
+
+        return self._summarize_causal(treatment, outcome)
 
     # ------------------------------------------------------------------
     # Persistence helpers used by ingestion jobs
@@ -127,7 +136,7 @@ class GraphService:
     # Internal helpers
     # ------------------------------------------------------------------
     def _summarize_causal(self, subject: str, target: str) -> CausalSummary | None:
-        treatment_values, outcome_values = self._collect_causal_observations(subject, target)
+        treatment_values, outcome_values, assumptions = self._collect_causal_observations(subject, target)
         if not treatment_values or not outcome_values:
             return None
         return self._causal_estimator.estimate_effect(
@@ -135,16 +144,23 @@ class GraphService:
             outcome_values,
             treatment_name=subject,
             outcome_name=target,
+            assumptions=assumptions,
         )
 
-    def _collect_causal_observations(self, subject: str, target: str) -> tuple[List[float], List[float]]:
+    def _collect_causal_observations(self, subject: str, target: str) -> Tuple[List[float], List[float], Dict[str, object]]:
         treatments: List[float] = []
         outcomes: List[float] = []
+        confounders: Set[str] = set()
+        mediators: Set[str] = set()
+        instruments: Set[str] = set()
+        self._ensure_label(subject)
+        self._ensure_label(target)
         try:
             node = self.store.get_node(subject)
         except NotImplementedError:  # pragma: no cover - depends on backend
             node = None
         if node is not None:
+            self._register_label(subject, node)
             samples = node.attributes.get("causal_samples")
             if isinstance(samples, list):
                 for sample in samples:
@@ -175,7 +191,40 @@ class GraphService:
                     outcome_val = edge.confidence if edge.confidence is not None else 0.0
                 treatments.append(float(treatment_val))
                 outcomes.append(float(outcome_val))
-        return treatments, outcomes
+            else:
+                mediators.add(edge.object)
+                self._ensure_label(edge.object)
+        try:
+            incoming_target = self.store.get_edge_evidence(object_=target)
+        except NotImplementedError:  # pragma: no cover - depends on backend
+            incoming_target = []
+        for edge in incoming_target:
+            if edge.subject == subject:
+                continue
+            confounders.add(edge.subject)
+            self._ensure_label(edge.subject)
+        try:
+            incoming_subject = self.store.get_edge_evidence(object_=subject)
+        except NotImplementedError:  # pragma: no cover - depends on backend
+            incoming_subject = []
+        for edge in incoming_subject:
+            if edge.subject == target:
+                continue
+            instruments.add(edge.subject)
+            self._ensure_label(edge.subject)
+        assumption_graph = self._build_assumption_graph(subject, target, confounders, mediators, instruments)
+        labels = {
+            node_id: self._label_for_node(node_id)
+            for node_id in {subject, target, *confounders, *mediators, *instruments}
+        }
+        assumptions: Dict[str, object] = {
+            "graph": assumption_graph,
+            "confounders": sorted(confounders),
+            "mediators": sorted(mediators),
+            "instruments": sorted(instruments),
+            "labels": labels,
+        }
+        return treatments, outcomes, assumptions
 
     def _suggest_literature(self, subject: str, target: str, limit: int = 3) -> List[str]:
         client = self._ensure_literature_client()
@@ -197,6 +246,73 @@ class GraphService:
         except Exception:  # pragma: no cover - network errors
             return []
         return suggestions
+
+    def _ensure_label(self, node_id: str) -> None:
+        if node_id in self._label_cache:
+            return
+        try:
+            node = self.store.get_node(node_id)
+        except NotImplementedError:  # pragma: no cover - depends on backend
+            node = None
+        self._register_label(node_id, node)
+
+    def _register_label(self, node_id: str, node: Node | None) -> None:
+        if node_id in self._label_cache:
+            return
+        if node is not None and getattr(node, "name", None):
+            label = f"{node.name} ({node_id})"
+        else:
+            label = node_id
+        self._label_cache[node_id] = label
+
+    def _label_for_node(self, node_id: str) -> str:
+        if node_id not in self._label_cache:
+            self._ensure_label(node_id)
+        return self._label_cache.get(node_id, node_id)
+
+    def _build_assumption_graph(
+        self,
+        treatment: str,
+        outcome: str,
+        confounders: Set[str],
+        mediators: Set[str],
+        instruments: Set[str],
+    ) -> str:
+        def quote(value: str) -> str:
+            escaped = value.replace("\"", "\\\"")
+            return f'"{escaped}"'
+
+        def node_definition(node_id: str, *, latent: bool) -> str:
+            attrs = [f"label=\"{self._label_for_node(node_id).replace('\"', '\\\"')}\""]
+            if latent:
+                attrs.append("latent=\"yes\"")
+            return f"  {quote(node_id)} [{', '.join(attrs)}];"
+
+        lines: List[str] = ["digraph {"]
+        declared: Set[str] = set()
+
+        def declare(node_id: str, *, latent: bool = False) -> None:
+            if node_id in declared:
+                return
+            lines.append(node_definition(node_id, latent=latent))
+            declared.add(node_id)
+
+        declare(treatment)
+        declare(outcome)
+        lines.append(f"  {quote(treatment)} -> {quote(outcome)};")
+        for conf in sorted(confounders):
+            declare(conf, latent=True)
+            lines.append(f"  {quote(conf)} -> {quote(treatment)};")
+            lines.append(f"  {quote(conf)} -> {quote(outcome)};")
+        for med in sorted(mediators):
+            declare(med, latent=True)
+            lines.append(f"  {quote(treatment)} -> {quote(med)};")
+            lines.append(f"  {quote(med)} -> {quote(outcome)};")
+        for inst in sorted(instruments):
+            declare(inst, latent=True)
+            lines.append(f"  {quote(inst)} -> {quote(treatment)};")
+        lines.append("}")
+        return "\n".join(lines)
 
     def _ensure_literature_client(self) -> OpenAlexClient | None:
         if self._literature_client is not None:

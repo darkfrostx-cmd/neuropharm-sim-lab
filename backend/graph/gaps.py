@@ -15,6 +15,7 @@ from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 
 import numpy as np
 
+from ..reasoning import CausalSummary, CounterfactualScenario
 from .models import BiolinkPredicate, Edge, Node
 from .persistence import GraphStore
 
@@ -54,12 +55,33 @@ class GapReport:
     embedding_score: float
     impact_score: float
     reason: str
-    causal_effect: float | None = None
-    causal_direction: str | None = None
-    causal_confidence: float | None = None
-    counterfactual_summary: str | None = None
+    causal: CausalSummary | None = None
     literature: List[str] = field(default_factory=list)
     metadata: Dict[str, object] = field(default_factory=dict)
+
+    @property
+    def causal_effect(self) -> float | None:
+        return self.causal.effect if self.causal else None
+
+    @property
+    def causal_direction(self) -> str | None:
+        return self.causal.direction if self.causal else None
+
+    @property
+    def causal_confidence(self) -> float | None:
+        return self.causal.confidence if self.causal else None
+
+    @property
+    def counterfactual_summary(self) -> str | None:
+        return self.causal.description if self.causal else None
+
+    @property
+    def counterfactuals(self) -> List[CounterfactualScenario]:
+        return list(self.causal.counterfactuals) if self.causal else []
+
+    @property
+    def assumption_graph(self) -> str | None:
+        return self.causal.assumption_graph if self.causal else None
 
 
 class EmbeddingGapFinder:

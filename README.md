@@ -49,6 +49,17 @@ pip install -e backend[mechanistic]
 The legacy `backend[simulation]` extra still works if you bookmarked the older docs.
 If you prefer requirements files, `backend/requirements-optional.txt` mirrors the same pins.
 
+Install the causal diagnostics extra when you want DoWhy/EconML-backed assumption
+graphs and counterfactuals surfaced in the `/gaps` and `/explain` endpoints:
+
+```bash
+pip install -e backend[causal]
+```
+
+With the extra active the API responses include explicit assumption graphs,
+numerical counterfactual scenarios and refutation diagnostics alongside the
+lightweight analytic fallback.
+
 The backend now bundles reference PySB, OSPSuite and TVB assets under `backend/simulation/assets`,
 so the optional engines work out of the box once the extra is installed—no need to ship separate
 PK-Sim projects or connectivity matrices.
