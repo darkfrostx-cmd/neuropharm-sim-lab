@@ -11,6 +11,7 @@ from ..engine.receptors import canonical_receptor_name, get_mechanism_factor, ge
 from .circuit import CircuitParameters, simulate_circuit_response
 from .molecular import MolecularCascadeParams, simulate_cascade
 from .pkpd import PKPDParameters, simulate_pkpd
+from .assets import load_reference_pathway
 
 Mechanism = Literal["agonist", "antagonist", "partial", "inverse"]
 
@@ -50,6 +51,11 @@ class EngineResult:
     module_summaries: Dict[str, Any]
     confidence: Dict[str, float]
 
+
+
+REFERENCE_PATHWAY = load_reference_pathway()
+REFERENCE_PATHWAY_NAME = REFERENCE_PATHWAY.get("pathway", "monoamine_neurotrophin_cascade")
+REFERENCE_DOWNSTREAM_NODES = {str(key): float(value) for key, value in REFERENCE_PATHWAY.get("downstream_nodes", {}).items()}
 
 class SimulationEngine:
     """Coordinate the molecular, PK/PD, and circuit layers."""
@@ -111,11 +117,11 @@ class SimulationEngine:
         mean_evidence = float(np.mean(list(receptor_evidence.values()) or [0.5]))
 
         molecular_params = MolecularCascadeParams(
-            pathway="monoamine_neurotrophin_cascade",
+            pathway=REFERENCE_PATHWAY_NAME,
             receptor_states=receptor_states,
             receptor_weights=receptor_weights,
             receptor_evidence=receptor_evidence,
-            downstream_nodes={"CREB": 0.18, "BDNF": 0.09, "mTOR": 0.05},
+            downstream_nodes=(REFERENCE_DOWNSTREAM_NODES or {"CREB": 0.18, "BDNF": 0.09, "mTOR": 0.05}),
             stimulus=1.2 if request.regimen == "chronic" else 1.0,
             timepoints=timepoints,
         )

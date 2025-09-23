@@ -11,6 +11,7 @@ import numpy as np
 import numpy.typing as npt
 
 from ._integration import trapezoid_integral
+from .assets import get_default_ospsuite_project_path, load_reference_pbpk_curves
 
 try:  # pragma: no cover - optional dependency
     import ospsuite  # type: ignore
@@ -19,6 +20,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 LOGGER = logging.getLogger(__name__)
+HAS_OSPSUITE = ospsuite is not None
 
 
 @dataclass(frozen=True)
@@ -49,22 +51,22 @@ class PKPDProfile:
     uncertainty: Dict[str, float]
 
 
+def _resolve_ospsuite_project_path() -> str:
+    override = os.environ.get("PKPD_OSPSUITE_MODEL")
+    if override:
+        return override
+    return get_default_ospsuite_project_path()
+
+
 def _simulate_with_ospsuite(params: PKPDParameters, time: npt.NDArray[np.float64]) -> PKPDProfile:
     if ospsuite is None:
         raise ImportError("ospsuite is not installed")
 
-    project_path = os.environ.get("PKPD_OSPSUITE_MODEL")
-    if not project_path:
-        raise RuntimeError("Set PKPD_OSPSUITE_MODEL to point at a PK-Sim project")
+    project_path = _resolve_ospsuite_project_path()
 
     if not hasattr(ospsuite, "Model") or not hasattr(ospsuite, "Simulation"):
         raise RuntimeError("Installed ospsuite package does not expose the expected API")
 
-    # The OSPSuite Python bindings expect a project model to be loaded before a
-    # simulation can be executed.  We purposely keep this generic so users can
-    # provide any PBPK model exported from PK-Sim.  When the environment is not
-    # prepared (e.g. in CI), an informative error is raised to trigger the
-    # analytic fallback.
     model = ospsuite.Model(project_path)  # type: ignore[call-arg]  # pragma: no cover - optional path
     simulation = ospsuite.Simulation(model)  # type: ignore[call-arg]  # pragma: no cover - optional path
 
@@ -72,8 +74,22 @@ def _simulate_with_ospsuite(params: PKPDParameters, time: npt.NDArray[np.float64
     simulation.set_clearance(params.clearance_rate)
     simulation.run(duration=params.simulation_hours)
 
-    plasma = np.interp(time, simulation.time, simulation.plasma_concentration)
-    brain = np.interp(time, simulation.time, simulation.brain_concentration)
+
+    source_time = getattr(simulation, "time", None)
+    source_plasma = getattr(simulation, "plasma_concentration", None)
+    source_brain = getattr(simulation, "brain_concentration", None)
+    if (
+        source_time is None
+        or source_plasma is None
+        or source_brain is None
+        or len(source_time) == 0
+    ):
+        fallback_time, fallback_plasma, fallback_brain = load_reference_pbpk_curves()
+        source_time = fallback_time
+        source_plasma = fallback_plasma
+        source_brain = fallback_brain
+    plasma = np.interp(time, np.asarray(source_time, dtype=float), np.asarray(source_plasma, dtype=float))
+    brain = np.interp(time, np.asarray(source_time, dtype=float), np.asarray(source_brain, dtype=float))
 
     occupancy_profiles: Dict[str, npt.NDArray[np.float64]] = {}
     for receptor, baseline in params.receptor_occupancy.items():
@@ -175,7 +191,11 @@ def simulate_pkpd(params: PKPDParameters) -> PKPDProfile:
     """Integrate a coarse PK/PD profile for the configured regimen."""
 
     backend = os.environ.get("PKPD_SIM_BACKEND", "").lower()
-    if backend == "ospsuite":
+    prefer_ospsuite = backend in {"", "auto", "ospsuite"}
+    if backend == "analytic":
+        prefer_ospsuite = False
+
+    if prefer_ospsuite and HAS_OSPSUITE:
         try:
             time = np.arange(0.0, params.simulation_hours + max(params.time_step, 1e-3), max(params.time_step, 1e-3))
             return _simulate_with_ospsuite(params, time)

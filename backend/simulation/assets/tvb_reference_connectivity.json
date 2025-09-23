@@ -1,0 +1,12 @@
+{
+  "regions": [
+    "prefrontal",
+    "striatum",
+    "amygdala"
+  ],
+  "weights": [
+    [0.0, 0.25, 0.2],
+    [0.25, 0.0, 0.18],
+    [0.2, 0.18, 0.0]
+  ]
+}

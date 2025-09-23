@@ -1,0 +1,9 @@
+{
+  "pathway": "monoamine_neurotrophin_cascade",
+  "downstream_nodes": {
+    "CREB": 0.18,
+    "BDNF": 0.09,
+    "mTOR": 0.05
+  },
+  "description": "Reference parameterisation for the bundled PySB pathway."
+}

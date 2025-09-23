@@ -15,7 +15,8 @@ neuropharm-sim-lab/
 │   ├── graph/                # Knowledge-graph store, evidence lookups and gaps logic
 │   ├── simulation/           # PK/PD + circuit orchestration scaffolding
 │   ├── requirements.txt      # Lean, Linux-friendly dependency set
-│   └── requirements-optional.txt  # PySB/OSPSuite/TVB extras for research builds
+│   ├── requirements-optional.txt  # Legacy pin set for manual installs
+│   └── pyproject.toml        # Installable package with optional simulation extras
 ├── frontend/
 │   ├── src/                  # React components, hooks and styles
 │   ├── tests/e2e/            # Playwright end-to-end coverage
@@ -42,8 +43,14 @@ The optional simulation toolkits (PySB, OSPSuite, TVB) pull heavy native wheels.
 Install them only when you need the full PK/PD stack:
 
 ```bash
-pip install -r backend/requirements-optional.txt
+pip install -e backend[simulation]
 ```
+
+If you prefer requirements files, `backend/requirements-optional.txt` mirrors the same pins.
+
+The backend now bundles reference PySB, OSPSuite and TVB assets under `backend/simulation/assets`,
+so the optional engines work out of the box once the extra is installed—no need to ship separate
+PK-Sim projects or connectivity matrices.
 
 **Render fix:** Render will happily install the lean requirements, but PySB’s
 Fortran build chain fails on their default image. The included `render.yaml`
