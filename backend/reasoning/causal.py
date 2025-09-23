@@ -9,9 +9,9 @@ external dependencies.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
-from typing import Sequence
+from typing import Any, Dict, List, Sequence
 
 import numpy as np
 
@@ -24,6 +24,20 @@ try:  # pragma: no cover - optional dependency
     from dowhy import CausalModel  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
     CausalModel = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency
+    from econml.dml import LinearDML  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    LinearDML = None  # type: ignore
+
+
+@dataclass(slots=True)
+class CounterfactualScenario:
+    """Structured counterfactual prediction for a treatment setting."""
+
+    label: str
+    treatment_value: float
+    predicted_outcome: float
 
 
 @dataclass(slots=True)
@@ -38,6 +52,9 @@ class CausalSummary:
     n_treated: int
     n_control: int
     description: str
+    assumption_graph: str | None = None
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
+    counterfactuals: List[CounterfactualScenario] = field(default_factory=list)
 
 
 class CausalEffectEstimator:
@@ -52,9 +69,14 @@ class CausalEffectEstimator:
         outcome_values: Sequence[float],
         treatment_name: str,
         outcome_name: str,
+        assumptions: Dict[str, Any] | None = None,
     ) -> CausalSummary | None:
         base_summary = self._difference_in_means_summary(
-            treatment_values, outcome_values, treatment_name, outcome_name
+            treatment_values,
+            outcome_values,
+            treatment_name,
+            outcome_name,
+            assumptions,
         )
         if base_summary is None:
             return None
@@ -64,8 +86,21 @@ class CausalEffectEstimator:
             treatment_name,
             outcome_name,
             base_summary,
+            assumptions or {},
         )
-        return dowhy_summary or base_summary
+        if dowhy_summary is not None:
+            return dowhy_summary
+        econml_summary = self._econml_counterfactuals(
+            treatment_values,
+            outcome_values,
+            treatment_name,
+            outcome_name,
+            base_summary,
+            assumptions or {},
+        )
+        if econml_summary is not None:
+            return econml_summary
+        return base_summary
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -76,6 +111,7 @@ class CausalEffectEstimator:
         outcome_values: Sequence[float],
         treatment_name: str,
         outcome_name: str,
+        assumptions: Dict[str, Any] | None,
     ) -> CausalSummary | None:
         if len(treatment_values) != len(outcome_values) or len(treatment_values) < self.minimum_samples * 2:
             return None
@@ -101,10 +137,32 @@ class CausalEffectEstimator:
         else:
             t_stat = abs(effect) / se
             confidence = float(1 / (1 + math.exp(-t_stat)))
-        description = (
-            f"Difference-in-means suggests a {direction} of {effect:.3f} in {outcome_name} "
-            f"when manipulating {treatment_name} (confidence {confidence:.2f}, "
-            f"n_treated={treated_outcomes.size}, n_control={control_outcomes.size})."
+        assumption_graph = None
+        diagnostics: Dict[str, Any] = {
+            "method": "difference_in_means",
+            "standard_error": se,
+            "baseline_outcome": float(outcome.mean()),
+            "median_treatment": float(np.median(treatment)),
+        }
+        if assumptions:
+            if assumptions.get("graph"):
+                assumption_graph = str(assumptions["graph"])
+            diagnostics["assumptions"] = {
+                "confounders": list(assumptions.get("confounders", [])),
+                "mediators": list(assumptions.get("mediators", [])),
+                "instruments": list(assumptions.get("instruments", [])),
+            }
+        counterfactuals = self._compute_counterfactuals(treatment, outcome)
+        description = self._build_description(
+            method="Difference-in-means",
+            effect=effect,
+            direction=direction,
+            outcome_name=outcome_name,
+            treatment_name=treatment_name,
+            confidence=confidence,
+            n_treated=int(treated_outcomes.size),
+            n_control=int(control_outcomes.size),
+            extra_note="Counterfactuals available." if counterfactuals else None,
         )
         return CausalSummary(
             treatment=treatment_name,
@@ -115,6 +173,9 @@ class CausalEffectEstimator:
             n_treated=int(treated_outcomes.size),
             n_control=int(control_outcomes.size),
             description=description,
+            assumption_graph=assumption_graph,
+            diagnostics=diagnostics,
+            counterfactuals=counterfactuals,
         )
 
     def _dowhy_summary(
@@ -124,6 +185,7 @@ class CausalEffectEstimator:
         treatment_name: str,
         outcome_name: str,
         base_summary: CausalSummary,
+        assumptions: Dict[str, Any],
     ) -> CausalSummary | None:
         if CausalModel is None or pd is None:  # pragma: no cover - optional dependency
             return None
@@ -136,11 +198,12 @@ class CausalEffectEstimator:
                     "outcome": list(outcome_values),
                 }
             )
+            graph = assumptions.get("graph") or "digraph { treatment -> outcome; }"
             model = CausalModel(
                 data=frame,
                 treatment="treatment",
                 outcome="outcome",
-                graph="digraph { treatment -> outcome; }",
+                graph=str(graph),
             )
             identified = model.identify_effect()
             estimate = model.estimate_effect(identified, method_name="backdoor.linear_regression")
@@ -151,10 +214,27 @@ class CausalEffectEstimator:
         direction = "increase" if effect_value > 0 else "decrease" if effect_value < 0 else "neutral"
         base_confidence = float(base_summary.confidence)
         confidence = float(max(base_confidence, min(0.95, 0.6 + min(0.3, abs(effect_value)))))
-        description = (
-            f"DoWhy linear regression estimates a {direction} of {effect_value:.3f} in {outcome_name} "
-            f"when manipulating {treatment_name}. {base_summary.description}"
+        description = self._build_description(
+            method="DoWhy linear regression",
+            effect=effect_value,
+            direction=direction,
+            outcome_name=outcome_name,
+            treatment_name=treatment_name,
+            confidence=confidence,
+            n_treated=base_summary.n_treated,
+            n_control=base_summary.n_control,
+            extra_note="Refutation available." if base_summary.counterfactuals else None,
         )
+        diagnostics = dict(base_summary.diagnostics)
+        diagnostics.update(
+            {
+                "method": "dowhy.backdoor.linear_regression",
+                "dowhy_effect": effect_value,
+            }
+        )
+        if assumptions.get("graph"):
+            diagnostics.setdefault("assumptions", {})
+            diagnostics["assumptions"]["graph"] = str(assumptions["graph"])
 
         try:  # pragma: no cover - optional dependency
             refutation = model.refute_estimate(identified, estimate, method_name="random_common_cause")
@@ -163,6 +243,7 @@ class CausalEffectEstimator:
                 shift = abs(float(new_effect) - effect_value)
                 confidence = float(max(confidence, min(0.95, 0.65 + max(0.0, 0.2 - shift))))
                 description += f" Refutation via random common cause altered the effect by {shift:.3f}."
+                diagnostics["dowhy_refutation_delta"] = shift
         except Exception:
             pass
 
@@ -175,8 +256,140 @@ class CausalEffectEstimator:
             n_treated=base_summary.n_treated,
             n_control=base_summary.n_control,
             description=description,
+            assumption_graph=base_summary.assumption_graph or str(assumptions.get("graph") or ""),
+            diagnostics=diagnostics,
+            counterfactuals=list(base_summary.counterfactuals),
         )
 
+    def _econml_counterfactuals(
+        self,
+        treatment_values: Sequence[float],
+        outcome_values: Sequence[float],
+        treatment_name: str,
+        outcome_name: str,
+        base_summary: CausalSummary,
+        assumptions: Dict[str, Any],
+    ) -> CausalSummary | None:
+        if LinearDML is None:  # pragma: no cover - optional dependency
+            return None
+        try:
+            treatment = np.asarray(treatment_values, dtype=float)
+            outcome = np.asarray(outcome_values, dtype=float)
+            if treatment.size != outcome.size or treatment.size < self.minimum_samples * 2:
+                return None
+            controls = assumptions.get("controls")
+            x: np.ndarray | None
+            if controls is not None:
+                x = np.asarray(controls, dtype=float)
+                if x.ndim == 1:
+                    x = x.reshape(-1, 1)
+                if x.shape[0] != treatment.size:
+                    x = None
+            else:
+                x = None
+            model = LinearDML()
+            model.fit(Y=outcome, T=treatment, X=x, W=None)
+            scenarios = [
+                float(np.quantile(treatment, 0.1)),
+                float(np.median(treatment)),
+                float(np.quantile(treatment, 0.9)),
+            ]
+            counterfactuals: List[CounterfactualScenario] = []
+            baseline = float(np.mean(outcome))
+            effects = model.effect(x) if x is not None else model.effect(None)
+            cate = float(np.mean(effects))
+            mean_treatment = float(np.mean(treatment))
+            for label, value in zip(["p10", "median", "p90"], scenarios):
+                delta = value - mean_treatment
+                predicted = baseline + cate * delta
+                counterfactuals.append(
+                    CounterfactualScenario(
+                        label=f"econml_{label}",
+                        treatment_value=value,
+                        predicted_outcome=float(predicted),
+                    )
+                )
+        except Exception:  # pragma: no cover - optional dependency
+            return None
 
-__all__ = ["CausalEffectEstimator", "CausalSummary"]
+        diagnostics = dict(base_summary.diagnostics)
+        diagnostics["method"] = "econml.lineardml"
 
+        description = self._build_description(
+            method="EconML LinearDML",
+            effect=base_summary.effect,
+            direction=base_summary.direction,
+            outcome_name=outcome_name,
+            treatment_name=treatment_name,
+            confidence=base_summary.confidence,
+            n_treated=base_summary.n_treated,
+            n_control=base_summary.n_control,
+            extra_note="Counterfactuals enhanced via EconML.",
+        )
+
+        return CausalSummary(
+            treatment=treatment_name,
+            outcome=outcome_name,
+            effect=base_summary.effect,
+            direction=base_summary.direction,
+            confidence=base_summary.confidence,
+            n_treated=base_summary.n_treated,
+            n_control=base_summary.n_control,
+            description=description,
+            assumption_graph=base_summary.assumption_graph,
+            diagnostics=diagnostics,
+            counterfactuals=counterfactuals,
+        )
+
+    def _compute_counterfactuals(self, treatment: np.ndarray, outcome: np.ndarray) -> List[CounterfactualScenario]:
+        if treatment.size == 0:
+            return []
+        variance = float(np.var(treatment, ddof=1)) if treatment.size > 1 else 0.0
+        baseline = float(np.mean(outcome))
+        if variance <= 1e-12:
+            return [
+                CounterfactualScenario(
+                    label="observed",
+                    treatment_value=float(treatment.mean()),
+                    predicted_outcome=baseline,
+                )
+            ]
+        covariance = float(np.cov(treatment, outcome, ddof=1)[0, 1]) if treatment.size > 1 else 0.0
+        slope = covariance / variance if variance else 0.0
+        intercept = baseline - slope * float(np.mean(treatment))
+        quantiles = {
+            "p10": float(np.quantile(treatment, 0.1)),
+            "median": float(np.median(treatment)),
+            "p90": float(np.quantile(treatment, 0.9)),
+        }
+        scenarios: List[CounterfactualScenario] = []
+        for label, value in quantiles.items():
+            predicted = intercept + slope * value
+            scenarios.append(
+                CounterfactualScenario(label=label, treatment_value=value, predicted_outcome=float(predicted))
+            )
+        return scenarios
+
+    def _build_description(
+        self,
+        *,
+        method: str,
+        effect: float,
+        direction: str,
+        outcome_name: str,
+        treatment_name: str,
+        confidence: float,
+        n_treated: int,
+        n_control: int,
+        extra_note: str | None = None,
+    ) -> str:
+        description = (
+            f"{method} suggests a {direction} of {effect:.3f} in {outcome_name} when manipulating {treatment_name} "
+            f"(confidence {confidence:.2f}, n_treated={n_treated}, n_control={n_control})."
+        )
+        if extra_note:
+            description = f"{description} {extra_note}"
+        return description
+
+
+__all__ = ["CausalEffectEstimator", "CausalSummary", "CounterfactualScenario"]

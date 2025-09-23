@@ -315,6 +315,21 @@ def explain_receptor(
             items.extend(_collect_evidence(downstream, "downstream", seen))
     items.sort(key=lambda item: item.edge.confidence or 0.0, reverse=True)
     items = items[: request.limit]
+    causal_summary = None
+    for explanation in items:
+        if explanation.direction == "downstream":
+            causal_summary = svc.graph_service.summarize_causal(canon, explanation.edge.object)
+            if causal_summary is not None:
+                break
+    if causal_summary is None:
+        for explanation in items:
+            if explanation.direction == "upstream":
+                causal_summary = svc.graph_service.summarize_causal(explanation.edge.subject, canon)
+                if causal_summary is not None:
+                    break
+    causal_payload = (
+        schemas.CausalDiagnostics.from_domain(causal_summary) if causal_summary is not None else None
+    )
     uncertainty = float(max(0.0, min(1.0, 1.0 - bundle.evidence_score)))
     return schemas.ExplainResponse(
         receptor=request.receptor,
@@ -324,6 +339,7 @@ def explain_receptor(
         uncertainty=uncertainty,
         provenance=list(bundle.evidence_sources),
         edges=items,
+        causal=causal_payload,
     )
 
 
@@ -359,6 +375,8 @@ def find_graph_gaps(
                 min(0.95, 1.0 - min(0.9, 0.3 * context_weight + 0.2 * impact_component)),
             )
         )
+        causal_payload = schemas.CausalDiagnostics.from_domain(gap.causal) if gap.causal else None
+        counterfactuals = [schemas.CounterfactualEstimate.from_domain(cf) for cf in gap.counterfactuals]
         items.append(
             schemas.GapDescriptor(
                 subject=gap.subject,
@@ -370,6 +388,9 @@ def find_graph_gaps(
                 context=metadata,
                 literature=list(gap.literature),
                 uncertainty=uncertainty,
+                counterfactual_summary=gap.counterfactual_summary,
+                counterfactuals=counterfactuals,
+                causal=causal_payload,
             )
         )
     return schemas.GapResponse(items=items)
