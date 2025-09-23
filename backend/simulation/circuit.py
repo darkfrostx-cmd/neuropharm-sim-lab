@@ -10,6 +10,8 @@ from typing import Dict, Mapping, Sequence, Tuple
 import numpy as np
 import numpy.typing as npt
 
+from .assets import load_reference_connectivity
+
 try:  # pragma: no cover - optional dependency
     from tvb.simulator.lab import (  # type: ignore
         connectivity,
@@ -29,6 +31,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 
 LOGGER = logging.getLogger(__name__)
+HAS_TVB = all(module is not None for module in (connectivity, coupling, integrators, models, monitors, simulator))
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,7 @@ def _simulate_with_tvb(params: CircuitParameters, time: npt.NDArray[np.float64])
     if len(time) < 2:
         raise ValueError("at least two timepoints are required for TVB integration")
 
+    reference_regions, reference_weights = load_reference_connectivity()
     conn = connectivity.Connectivity()  # type: ignore[call-arg]  # pragma: no cover - optional path
     conn.number_of_regions = n_regions
     conn.region_labels = np.array(params.regions)
@@ -75,6 +79,16 @@ def _simulate_with_tvb(params: CircuitParameters, time: npt.NDArray[np.float64])
         except ValueError:
             continue
         weights[i, j] = value
+    for src_index, src in enumerate(params.regions):
+        for dst_index, dst in enumerate(params.regions):
+            if src == dst:
+                continue
+            try:
+                ref_src = reference_regions.index(src)
+                ref_dst = reference_regions.index(dst)
+                weights[src_index, dst_index] += float(reference_weights[ref_src, ref_dst])
+            except ValueError:
+                continue
     conn.weights = weights
     conn.tract_lengths = np.ones((n_regions, n_regions), dtype=float)
     conn.configure()
@@ -181,7 +195,11 @@ def simulate_circuit_response(params: CircuitParameters) -> CircuitResponse:
         raise ValueError("timepoints must contain at least one value")
 
     backend = os.environ.get("CIRCUIT_SIM_BACKEND", "").lower()
-    if backend == "tvb":
+    prefer_tvb = backend in {"", "auto", "tvb"}
+    if backend == "analytic":
+        prefer_tvb = False
+
+    if prefer_tvb and HAS_TVB:
         try:
             return _simulate_with_tvb(params, time)
         except Exception as exc:  # pragma: no cover - optional path
