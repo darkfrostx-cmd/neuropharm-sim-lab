@@ -1,0 +1,26 @@
+name = "neuropharm-sim-lab-worker"
+main = "worker/src/index.ts"
+compatibility_date = "2024-06-05"
+
+[vars]
+# Default fallback for local development. Override in production via Wrangler secrets or GitHub Actions.
+API_BASE_URL = "http://127.0.0.1:8000"
+CACHE_TTL_SECONDS = "60"
+
+[[kv_namespaces]]
+binding = "CONFIG_KV"
+# Replace the values below after creating the namespace via `wrangler kv:namespace create`.
+id = "<YOUR_KV_NAMESPACE_ID>"
+preview_id = "<YOUR_KV_PREVIEW_ID>"
+
+[[d1_databases]]
+binding = "VECTOR_CACHE"
+database_name = "neuropharm-vector-cache"
+# Replace the ID after running `wrangler d1 create neuropharm-vector-cache`.
+database_id = "<YOUR_D1_DATABASE_ID>"
+migrations_dir = "worker/migrations"
+
+[env.production.vars]
+# Cloudflare's GitHub Action injects the render backend or Worker-to-Worker URL here at deploy time.
+API_BASE_URL = "https://api.your-render-domain.example"
+

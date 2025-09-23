@@ -5,7 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence
 
-from ..config import DEFAULT_GRAPH_CONFIG, GraphBackendSettings, GraphConfig
+from ..config import (
+    DEFAULT_GRAPH_CONFIG,
+    DEFAULT_VECTOR_STORE_CONFIG,
+    GraphBackendSettings,
+    GraphConfig,
+    VectorStoreConfig,
+)
 from ..reasoning import CausalEffectEstimator, CausalSummary
 from .gaps import EmbeddingConfig, EmbeddingGapFinder, GapReport
 from .ingest_openalex import OpenAlexClient  # type: ignore
@@ -28,12 +34,14 @@ class GraphService:
         self,
         store: GraphStore | None = None,
         config: GraphConfig | None = None,
+        vector_config: VectorStoreConfig | None = None,
         embedding_config: EmbeddingConfig | None = None,
         gap_finder: EmbeddingGapFinder | None = None,
         causal_estimator: CausalEffectEstimator | None = None,
         literature_client: OpenAlexClient | None = None,
     ) -> None:
         self.config = config or DEFAULT_GRAPH_CONFIG
+        self.vector_config = vector_config or DEFAULT_VECTOR_STORE_CONFIG
         if store is not None:
             self.store = store
         else:

@@ -158,40 +158,89 @@ or run the install step inside a job that preinstalls `gfortran`, `cmake` and
 You can run the full stack on free tiers by pairing the API with Cloudflare and
 serverless databases:
 
-1. **Frontend.** Deploy the React bundle to [Cloudflare Pages][cf-pages] (free,
-   unlimited requests). Pages can also host the static NiiVue shader assets.
-2. **API.** Use [Cloudflare Workers][cf-workers] to proxy requests to a Render
-   instance or to a lightweight container running the FastAPI app. The backend
-   reads its connection info from environment variables, so Workers KV can store
-   secrets safely.
-3. **Graph storage.** Point the backend at a free [Neo4j Aura][aura] instance by
-   setting `GRAPH_BACKEND=neo4j` and `GRAPH_URI=neo4j+s://...`. Install the
-   backend requirements so the Neo4j and ArangoDB clients are available, then
-   mirror writes to ArangoDB (or any document store) with the new mirror syntax:
+1. **Graph storage (Neo4j + optional mirrors).** Point the backend at a free
+   [Neo4j Aura][aura] instance by setting `GRAPH_BACKEND=neo4j` and
+   `GRAPH_URI=neo4j+s://...`. Install the backend requirements so the Neo4j and
+   ArangoDB clients are available, then mirror writes to ArangoDB (or any
+   document store) with the existing mirror syntax:
 
    ```bash
    pip install -r backend/requirements.txt
-   GRAPH_BACKEND=neo4j
-   GRAPH_URI=neo4j+s://<your-host>
-   GRAPH_USERNAME=<user>
-   GRAPH_PASSWORD=<password>
-   GRAPH_MIRROR_A_BACKEND=arangodb
-   GRAPH_MIRROR_A_URI=https://<your-arango-host>
-   GRAPH_MIRROR_A_DATABASE=brainos
+   export GRAPH_BACKEND=neo4j
+   export GRAPH_URI=neo4j+s://<your-host>
+   export GRAPH_USERNAME=<user>
+   export GRAPH_PASSWORD=<password>
+   export GRAPH_MIRROR_A_BACKEND=arangodb
+   export GRAPH_MIRROR_A_URI=https://<your-arango-host>
+   export GRAPH_MIRROR_A_DATABASE=brainos
    ```
 
    The bundled `python-arango>=7.5.5` release contains the TLS/SNI fixes that
    ArangoDB Oasis and other managed offerings require. If you override the
    version pin, keep it at 7.5 or newer so certificate negotiation succeeds.
-
    `GraphConfig` automatically creates a composite store that keeps the Aura
    graph and the Arango document view in sync.
-4. **Vectors and documents.** [Supabase][supabase] or [Neon][neon] provide free
-   Postgres/pgvector tiers; the ingestion jobs can push embeddings there while
-   the main graph stays in Aura.
+2. **Vector embeddings (Supabase/Neon).** Free [Supabase][supabase] and
+   [Neon][neon] projects expose pgvector-enabled Postgres instances. The helper
+   script in `infra/pgvector/bootstrap_pgvector.sh` provisions the extension and
+   baseline tables:
 
-The `render.yaml` remains for teams already invested in Render, but the Cloudflare
-setup gives you an entirely free footprint for demos and day-to-day research.
+   ```bash
+   export VECTOR_DB_URL="postgresql://user:pass@host:5432/postgres?sslmode=require"
+   ./infra/pgvector/bootstrap_pgvector.sh
+   ```
+
+   Copy the emitted variables (`VECTOR_DB_URL`, `VECTOR_DB_SCHEMA`,
+   `VECTOR_DB_TABLE`) into your deployment environment. The backend loads them
+   via `backend.config.VectorStoreConfig` and keeps them available for ingestion
+   jobs and Worker sidecars.
+3. **API via Cloudflare Workers.** The `wrangler.toml` at the repository root
+   points Wrangler at `worker/src/index.ts`, a lightweight proxy that forwards
+   requests to FastAPI, stores secrets in Workers KV and caches hot responses in
+   D1. To deploy manually:
+
+   ```bash
+   cd worker
+   npm install
+   npx wrangler kv:namespace create neuropharm-config
+   npx wrangler d1 create neuropharm-vector-cache
+   npx wrangler secret put API_BASE_URL   # e.g. https://your-render-service.onrender.com
+   npx wrangler secret put VECTOR_DB_URL  # optional, falls back to KV for reads
+   npx wrangler deploy --var API_BASE_URL:https://your-backend.example
+   ```
+
+   Store long-lived secrets (graph credentials, Postgres URLs) in the KV
+   namespace so the Worker can hydrate `API_BASE_URL` when the direct variable
+   is missing. The Worker exposes `GET /__worker/health` for quick diagnostics
+   and automatically persists cacheable JSON responses to the D1 database.
+4. **Frontend via Cloudflare Pages.** Build the React bundle and ship it to
+   Pages:
+
+   ```bash
+   cd frontend
+   npm ci
+   npm run build
+   npx wrangler pages deploy dist --project-name neuropharm-sim-lab
+   ```
+
+   Set `VITE_API_BASE_URL` to the public Worker URL so the frontend targets the
+   proxy instead of a direct Render instance.
+
+GitHub deployments are wired through `.github/workflows/deploy-cloudflare.yml`.
+Add the following repository secrets before enabling the workflow:
+
+| Secret | Purpose |
+| --- | --- |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account identifier for Pages/Workers. |
+| `CLOUDFLARE_API_TOKEN` | Scoped token with `Pages` and `Workers KV/D1` permissions. |
+| `CLOUDFLARE_PAGES_PROJECT` | Name of the Pages project receiving the frontend build. |
+| `WORKER_API_BASE_URL` | Backend URL injected at deploy time (`wrangler deploy --var`). |
+| `VECTOR_DB_URL` | Connection string passed through to the Worker and backend. |
+
+The workflow builds the frontend, publishes it to Pages, installs the Worker
+dependencies and runs `wrangler deploy`. The `render.yaml` remains for teams
+already invested in Render, but the Cloudflare setup gives you an entirely free
+footprint for demos and day-to-day research.
 
 ### Automated ingestion runs
 
