@@ -43,9 +43,10 @@ The optional simulation toolkits (PySB, OSPSuite, TVB) pull heavy native wheels.
 Install them only when you need the full PK/PD stack:
 
 ```bash
-pip install -e backend[simulation]
+pip install -e backend[mechanistic]
 ```
 
+The legacy `backend[simulation]` extra still works if you bookmarked the older docs.
 If you prefer requirements files, `backend/requirements-optional.txt` mirrors the same pins.
 
 The backend now bundles reference PySB, OSPSuite and TVB assets under `backend/simulation/assets`,

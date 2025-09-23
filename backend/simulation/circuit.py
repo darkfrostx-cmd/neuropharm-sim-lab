@@ -208,4 +208,4 @@ def simulate_circuit_response(params: CircuitParameters) -> CircuitResponse:
     return _simulate_analytic(params, time)
 
 
-__all__ = ["CircuitParameters", "CircuitResponse", "simulate_circuit_response"]
+__all__ = ["CircuitParameters", "CircuitResponse", "simulate_circuit_response", "HAS_TVB"]

@@ -39,6 +39,8 @@ except Exception:  # pragma: no cover - optional dependency
     Observable = None  # type: ignore[assignment]
     ScipyOdeSimulator = None  # type: ignore[assignment]
 
+HAS_PYSB = Model is not None
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -208,4 +210,4 @@ def simulate_cascade(params: MolecularCascadeParams) -> MolecularCascadeResult:
     )
 
 
-__all__ = ["MolecularCascadeParams", "MolecularCascadeResult", "simulate_cascade"]
+__all__ = ["MolecularCascadeParams", "MolecularCascadeResult", "simulate_cascade", "HAS_PYSB"]

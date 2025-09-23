@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -8,6 +9,7 @@ import pytest
 
 from backend.simulation import circuit, molecular, pkpd
 from backend.simulation.assets import (
+    get_default_ospsuite_project_path,
     load_reference_connectivity,
     load_reference_pbpk_curves,
     load_reference_pathway,
@@ -31,6 +33,62 @@ def cascade_params() -> MolecularCascadeParams:
     )
 
 
+@pytest.fixture
+def pkpd_params() -> PKPDParameters:
+    return PKPDParameters(
+        compound="composite_ssri",
+        dose_mg=50.0,
+        dosing_interval_h=24.0,
+        regimen="acute",
+        clearance_rate=0.2,
+        bioavailability=0.6,
+        brain_plasma_ratio=0.7,
+        receptor_occupancy={"HTR1A": 0.5},
+        kg_confidence=0.8,
+        simulation_hours=48.0,
+        time_step=6.0,
+    )
+
+
+@pytest.fixture
+def circuit_params() -> CircuitParameters:
+    regions, base_weights = load_reference_connectivity()
+    n_regions = len(regions)
+    connectivity = {
+        (regions[i], regions[j]): float(base_weights[i, j])
+        for i in range(n_regions)
+        for j in range(n_regions)
+        if i != j
+    }
+    return CircuitParameters(
+        regions=tuple(regions),
+        connectivity=connectivity,
+        neuromodulator_drive={"serotonin": 0.6, "dopamine": 0.4, "noradrenaline": 0.3},
+        regimen="chronic",
+        timepoints=np.linspace(0.0, 10.0, 11),
+        coupling_baseline=0.3,
+        kg_confidence=0.75,
+    )
+
+
+def test_reference_assets_are_packaged() -> None:
+    pathway = load_reference_pathway()
+    assert pathway["pathway"] == "monoamine_neurotrophin_cascade"
+    assert set(pathway["downstream_nodes"]).issuperset({"CREB", "BDNF", "mTOR"})
+
+    project_path = Path(get_default_ospsuite_project_path())
+    assert project_path.exists()
+
+    time, plasma, brain = load_reference_pbpk_curves()
+    assert time.size > 0 and plasma.size == time.size and brain.size == time.size
+    assert np.all(plasma >= 0.0)
+    assert np.all(brain >= 0.0)
+
+    regions, weights = load_reference_connectivity()
+    assert regions
+    assert weights.shape == (len(regions), len(regions))
+
+
 def test_molecular_prefers_pysb_when_available(monkeypatch: pytest.MonkeyPatch, cascade_params: MolecularCascadeParams) -> None:
     calls: dict[str, float] = {}
 
@@ -49,7 +107,9 @@ def test_molecular_prefers_pysb_when_available(monkeypatch: pytest.MonkeyPatch, 
     assert all(math.isfinite(value) for value in result.summary.values() if isinstance(value, float))
 
 
-def test_pkpd_prefers_ospsuite_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pkpd_prefers_ospsuite_when_available(
+    monkeypatch: pytest.MonkeyPatch, pkpd_params: PKPDParameters
+) -> None:
     time, plasma, brain = load_reference_pbpk_curves()
 
     class _FakeSimulation:
@@ -79,29 +139,15 @@ def test_pkpd_prefers_ospsuite_when_available(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(pkpd, "ospsuite", fake_module, raising=False)
     monkeypatch.setattr(pkpd, "HAS_OSPSUITE", True, raising=False)
 
-    params = PKPDParameters(
-        compound="composite_ssri",
-        dose_mg=50.0,
-        dosing_interval_h=24.0,
-        regimen="acute",
-        clearance_rate=0.2,
-        bioavailability=0.6,
-        brain_plasma_ratio=0.7,
-        receptor_occupancy={"HTR1A": 0.5},
-        kg_confidence=0.8,
-        simulation_hours=48.0,
-        time_step=6.0,
-    )
-
-    profile = pkpd.simulate_pkpd(params)
+    profile = pkpd.simulate_pkpd(pkpd_params)
 
     assert profile.summary["backend"] == "ospsuite"
     assert profile.timepoints[-1] == pytest.approx(48.0, rel=1e-3)
     assert profile.plasma_concentration.shape == profile.brain_concentration.shape
 
 
-def test_circuit_prefers_tvb_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
-    regions, base_weights = load_reference_connectivity()
+def test_circuit_prefers_tvb_when_available(monkeypatch: pytest.MonkeyPatch, circuit_params: CircuitParameters) -> None:
+    regions = circuit_params.regions
     n_regions = len(regions)
 
     class _FakeConnectivity:
@@ -147,18 +193,45 @@ def test_circuit_prefers_tvb_when_available(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(circuit, "simulator", fake_simulator, raising=False)
     monkeypatch.setattr(circuit, "HAS_TVB", True, raising=False)
 
-    params = CircuitParameters(
-        regions=tuple(regions),
-        connectivity={(regions[i], regions[j]): float(base_weights[i, j]) for i in range(n_regions) for j in range(n_regions) if i != j},
-        neuromodulator_drive={"serotonin": 0.6, "dopamine": 0.4, "noradrenaline": 0.3},
-        regimen="chronic",
-        timepoints=np.linspace(0.0, 10.0, 11),
-        coupling_baseline=0.3,
-        kg_confidence=0.75,
-    )
-
-    response = circuit.simulate_circuit_response(params)
+    response = circuit.simulate_circuit_response(circuit_params)
 
     assert response.global_metrics["backend"] == "tvb"
     assert all(region in response.region_activity for region in regions)
-    assert response.timepoints.shape[0] == params.timepoints.shape[0]
+    assert response.timepoints.shape[0] == circuit_params.timepoints.shape[0]
+
+
+def test_molecular_falls_back_to_analytic(monkeypatch: pytest.MonkeyPatch, cascade_params: MolecularCascadeParams) -> None:
+    monkeypatch.delenv("MOLECULAR_SIM_BACKEND", raising=False)
+    monkeypatch.setattr(molecular, "Model", None, raising=False)
+    monkeypatch.setattr(molecular, "HAS_PYSB", False, raising=False)
+
+    result = molecular.simulate_cascade(cascade_params)
+
+    assert result.summary["backend"] == "analytic"
+    assert set(result.node_activity) == set(cascade_params.downstream_nodes)
+    assert all(np.all(node_activity >= 0.0) for node_activity in result.node_activity.values())
+
+
+def test_pkpd_falls_back_to_analytic(monkeypatch: pytest.MonkeyPatch, pkpd_params: PKPDParameters) -> None:
+    monkeypatch.delenv("PKPD_SIM_BACKEND", raising=False)
+    monkeypatch.setattr(pkpd, "HAS_OSPSUITE", False, raising=False)
+    monkeypatch.setattr(pkpd, "ospsuite", None, raising=False)
+
+    profile = pkpd.simulate_pkpd(pkpd_params)
+
+    assert profile.summary["backend"] == "analytic"
+    assert profile.timepoints[0] == pytest.approx(0.0)
+    assert np.all(profile.plasma_concentration >= 0.0)
+    assert np.all(profile.brain_concentration >= 0.0)
+
+
+def test_circuit_falls_back_to_analytic(monkeypatch: pytest.MonkeyPatch, circuit_params: CircuitParameters) -> None:
+    monkeypatch.delenv("CIRCUIT_SIM_BACKEND", raising=False)
+    monkeypatch.setattr(circuit, "HAS_TVB", False, raising=False)
+    monkeypatch.setattr(circuit, "connectivity", None, raising=False)
+
+    response = circuit.simulate_circuit_response(circuit_params)
+
+    assert response.global_metrics["backend"] == "analytic"
+    assert set(response.region_activity) == set(circuit_params.regions)
+    assert response.timepoints.shape[0] == circuit_params.timepoints.shape[0]

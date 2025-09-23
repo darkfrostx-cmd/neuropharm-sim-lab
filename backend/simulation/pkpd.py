@@ -205,4 +205,4 @@ def simulate_pkpd(params: PKPDParameters) -> PKPDProfile:
     return _two_compartment_model(params)
 
 
-__all__ = ["PKPDParameters", "PKPDProfile", "simulate_pkpd"]
+__all__ = ["PKPDParameters", "PKPDProfile", "simulate_pkpd", "HAS_OSPSUITE"]
