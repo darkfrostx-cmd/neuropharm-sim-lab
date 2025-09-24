@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Iterable, Iterator
 
 try:  # pragma: no cover - optional dependency for live fetches
@@ -11,6 +12,10 @@ except ImportError:  # pragma: no cover
 
 from .ingest_base import BaseIngestionJob
 from .models import BiolinkEntity, BiolinkPredicate, Edge, Node
+from .text_mining import TextMiningPipeline
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class OpenAlexClient:
@@ -55,10 +60,24 @@ class OpenAlexIngestion(BaseIngestionJob):
     name = "openalex"
     source = "OpenAlex"
 
-    def __init__(self, client: OpenAlexClient | None = None, concept: str | None = None, search: str | None = None) -> None:
+    def __init__(
+        self,
+        client: OpenAlexClient | None = None,
+        concept: str | None = None,
+        search: str | None = None,
+        text_miner: TextMiningPipeline | None = None,
+    ) -> None:
         self.client = client or OpenAlexClient()
         self.concept = concept
         self.search = search
+        if text_miner is not None:
+            self.text_miner = text_miner
+        else:
+            try:
+                self.text_miner = TextMiningPipeline()
+            except Exception as exc:  # pragma: no cover - optional deps
+                LOGGER.debug("Text mining pipeline unavailable: %s", exc)
+                self.text_miner = None
 
     def fetch(self, limit: int | None = None) -> Iterable[dict]:
         iterator = self.client.iter_works(concept=self.concept, search=self.search)
@@ -131,6 +150,16 @@ class OpenAlexIngestion(BaseIngestionJob):
                     evidence=[self.make_evidence(self.source, record.get("doi"), None, score=str(concept.get("score", "")))],
                 )
             )
+        if self.text_miner is not None:
+            try:
+                mined_nodes, mined_edges = self.text_miner.mine(record, work_node)
+            except Exception as exc:  # pragma: no cover - text mining optional
+                mined_nodes, mined_edges = [], []
+                LOGGER.debug("Text mining failed for %s: %s", work_id, exc)
+            if mined_nodes or mined_edges:
+                nodes.extend(mined_nodes)
+                edges.extend(mined_edges)
+
         return nodes, edges
 
 

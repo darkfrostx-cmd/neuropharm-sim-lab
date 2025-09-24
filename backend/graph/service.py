@@ -13,10 +13,11 @@ from ..config import (
     VectorStoreConfig,
 )
 from ..reasoning import CausalEffectEstimator, CausalSummary
-from .gaps import EmbeddingConfig, EmbeddingGapFinder, GapReport
+from .gaps import EmbeddingConfig, EmbeddingGapFinder, GapReport, RotatEGapFinder
 from .ingest_openalex import OpenAlexClient  # type: ignore
 from .models import Edge, Evidence, Node
 from .persistence import CompositeGraphStore, GraphFragment, GraphStore, InMemoryGraphStore
+from .vector_store import build_vector_store
 
 
 @dataclass(slots=True)
@@ -47,7 +48,11 @@ class GraphService:
         else:
             self.store = self._create_store(self.config)
         self._embedding_config = embedding_config or EmbeddingConfig()
-        self._gap_finder = gap_finder or EmbeddingGapFinder(self.store, self._embedding_config)
+        self.vector_store = build_vector_store(self.vector_config)
+        if gap_finder is not None:
+            self._gap_finder = gap_finder
+        else:
+            self._gap_finder = RotatEGapFinder(self.store, self._embedding_config, vector_store=self.vector_store)
         self._causal_estimator = causal_estimator or CausalEffectEstimator()
         self._literature_client = literature_client
         self._label_cache: Dict[str, str] = {}

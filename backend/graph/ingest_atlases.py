@@ -15,6 +15,7 @@ from .models import BiolinkEntity, BiolinkPredicate, Edge, Node
 
 class AllenAtlasClient:
     BASE_URL = "https://api.brain-map.org/api/v2/data/Structure/query.json"
+    CENTER_URL = "https://api.brain-map.org/api/v2/data/StructureCenter/query.json"
 
     def __init__(self, session: "requests.Session" | None = None) -> None:
         if requests is None:
@@ -27,6 +28,12 @@ class AllenAtlasClient:
         response.raise_for_status()
         structures = response.json().get("msg", [])
         return iter(structures)
+
+    def fetch_centers(self, structure_id: int) -> list[dict]:
+        params = {"criteria": f"[structure_id$eq{structure_id}]"}
+        response = self.session.get(self.CENTER_URL, params=params, timeout=30)
+        response.raise_for_status()
+        return response.json().get("msg", []) or []
 
 
 class EBrainsAtlasClient:
@@ -58,12 +65,30 @@ class AllenAtlasIngestion(BaseIngestionJob):
         return (record for i, record in enumerate(iterator) if i < limit)
 
     def transform(self, record: dict) -> tuple[list[Node], list[Edge]]:
+        structure_id = int(record.get("id", 0) or 0)
+        node_id = record.get("id", "AllenStructure")
+        attributes: dict[str, object] = {"acronym": record.get("acronym")}
+        if structure_id:
+            try:
+                centers = [
+                    {
+                        "reference_space_id": center.get("reference_space_id"),
+                        "x": center.get("x"),
+                        "y": center.get("y"),
+                        "z": center.get("z"),
+                    }
+                    for center in self.client.fetch_centers(structure_id)
+                ]
+            except Exception:
+                centers = []
+            if centers:
+                attributes["centers"] = centers
         node = Node(
-            id=record.get("id", "AllenStructure"),
+            id=node_id,
             name=record.get("name", "Structure"),
             category=BiolinkEntity.BRAIN_REGION,
             provided_by=self.source,
-            attributes={"acronym": record.get("acronym")},
+            attributes=attributes,
         )
         parent_id = record.get("parent_structure_id")
         edges: list[Edge] = []
@@ -98,7 +123,10 @@ class EBrainsAtlasIngestion(BaseIngestionJob):
             name=record.get("name", "Region"),
             category=BiolinkEntity.BRAIN_REGION,
             provided_by=self.source,
-            attributes={"atlas": record.get("atlas")},
+            attributes={
+                "atlas": record.get("atlas"),
+                "coordinates": record.get("hasCoordinates", []),
+            },
         )
         coordinates = record.get("hasCoordinates", [])
         edges: list[Edge] = []

@@ -147,12 +147,27 @@ const simulationResponse = {
   },
 }
 
+const atlasOverlayResponse = {
+  node_id: 'DRD2',
+  provider: 'Allen Brain Atlas',
+  coordinates: [
+    {
+      x_mm: 12.5,
+      y_mm: -8.2,
+      z_mm: 6.1,
+      source: 'allen',
+    },
+  ],
+  volumes: [],
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route('**/graph/expand', (route) => route.fulfill({ json: graphResponse }))
   await page.route('**/predict/effects', (route) => route.fulfill({ json: predictResponse }))
   await page.route('**/explain', (route) => route.fulfill({ json: explainResponse }))
   await page.route('**/gaps', (route) => route.fulfill({ json: gapsResponse }))
   await page.route('**/simulate', (route) => route.fulfill({ json: simulationResponse }))
+  await page.route('**/atlas/overlays/**', (route) => route.fulfill({ json: atlasOverlayResponse }))
 })
 
 test('graph navigation, provenance, gaps and simulation flows render', async ({ page }) => {

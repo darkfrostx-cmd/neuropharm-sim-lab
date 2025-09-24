@@ -18,6 +18,7 @@ import numpy as np
 from ..reasoning import CausalSummary, CounterfactualScenario
 from .models import BiolinkPredicate, Edge, Node
 from .persistence import GraphStore
+from .vector_store import BaseVectorStore, InMemoryVectorStore, VectorRecord
 
 
 @dataclass(slots=True)
@@ -85,17 +86,24 @@ class GapReport:
         return self.causal.assumption_graph if self.causal else None
 
 
-class EmbeddingGapFinder:
+class RotatEGapFinder:
     """Train and query a simple TransE-like embedding over the graph."""
 
-    def __init__(self, store: GraphStore, config: EmbeddingConfig | None = None) -> None:
+    def __init__(
+        self,
+        store: GraphStore,
+        config: EmbeddingConfig | None = None,
+        vector_store: BaseVectorStore | None = None,
+    ) -> None:
         self.store = store
         self.config = config or EmbeddingConfig()
+        self._vector_store = vector_store or InMemoryVectorStore()
         self._node_index: Dict[str, int] = {}
         self._relation_index: Dict[BiolinkPredicate, int] = {}
         self._entity_embeddings: np.ndarray | None = None
         self._relation_embeddings: np.ndarray | None = None
         self._snapshot: Tuple[int, int] | None = None
+        self._vector_namespace = "graph_nodes"
 
     # ------------------------------------------------------------------
     # Public API
@@ -118,7 +126,8 @@ class EmbeddingGapFinder:
         for subject in focus_nodes:
             if subject not in self._node_index:
                 continue
-            for node_id in nodes:
+            candidate_ids = self._candidate_nodes(subject, nodes.keys())
+            for node_id in candidate_ids:
                 if node_id == subject:
                     continue
                 if (subject, node_id) not in existing_pairs:
@@ -177,6 +186,7 @@ class EmbeddingGapFinder:
             return
         self._prepare_indices(nodes, edges)
         self._train_model(edges)
+        self._persist_embeddings()
         self._snapshot = snapshot
 
     def _iter_nodes(self) -> Iterable[Node]:
@@ -288,6 +298,53 @@ class EmbeddingGapFinder:
         predicted = subject_vec * predicate_vec
         distance = np.linalg.norm(predicted - object_vec)
         return float(-distance)
+
+    def _candidate_nodes(self, subject: str, node_ids: Iterable[str]) -> List[str]:
+        if self._entity_embeddings is None:
+            return list(node_ids)
+        subj_idx = self._node_index.get(subject)
+        if subj_idx is None:
+            return list(node_ids)
+        query_vector = self._complex_to_real(self._entity_embeddings[subj_idx])
+        try:
+            records = self._vector_store.query(self._vector_namespace, query_vector, top_k=64)
+        except Exception:
+            records = []
+        ordered: List[str] = []
+        seen: set[str] = set()
+        for record in records:
+            node_id = record.metadata.get("node_id") if isinstance(record.metadata, dict) else record.id
+            if not isinstance(node_id, str):
+                node_id = record.id
+            if node_id in self._node_index and node_id not in seen:
+                ordered.append(node_id)
+                seen.add(node_id)
+        for node_id in node_ids:
+            if node_id not in seen:
+                ordered.append(node_id)
+        return ordered
+
+    def _persist_embeddings(self) -> None:
+        if self._entity_embeddings is None:
+            return
+        try:
+            self._vector_store.delete_namespace(self._vector_namespace)
+        except Exception:
+            pass
+        records: List[VectorRecord] = []
+        for node_id, idx in self._node_index.items():
+            vector = self._complex_to_real(self._entity_embeddings[idx])
+            records.append(VectorRecord(id=node_id, vector=vector, metadata={"node_id": node_id}))
+        try:
+            self._vector_store.upsert(self._vector_namespace, records)
+        except Exception:
+            pass
+
+    def _complex_to_real(self, embedding: np.ndarray) -> Tuple[float, ...]:
+        real = np.real(embedding)
+        imag = np.imag(embedding)
+        combined = np.concatenate([real, imag])
+        return tuple(float(value) for value in combined)
 
     def _impact_score(self, embedding_score: float, subject_degree: int, object_degree: int, uncertainty: float) -> float:
         degree_factor = math.log(2 + subject_degree + object_degree)
@@ -452,10 +509,14 @@ class EmbeddingGapFinder:
         return {str(value)}
 
 
+EmbeddingGapFinder = RotatEGapFinder
+
+
 __all__ = [
     "EmbeddingConfig",
     "EmbeddingGapFinder",
     "GapCandidate",
     "GapReport",
+    "RotatEGapFinder",
 ]
 

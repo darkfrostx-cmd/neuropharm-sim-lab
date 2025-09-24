@@ -132,3 +132,13 @@ def test_gap_report_includes_causal_summary_and_literature() -> None:
     assert report.metadata.get("context_weight")
     assert "assumption_graph" in report.metadata
     assert "context_uncertainty" in report.metadata
+
+
+def test_gap_finder_persists_embeddings_in_vector_store() -> None:
+    store, receptor_id, behaviour_id, _ = build_gap_store()
+    service = GraphService(store=store, literature_client=StubOpenAlexClient())
+    service.find_gaps([receptor_id, behaviour_id], top_k=3)
+    vector_store = getattr(service, "vector_store", None)
+    assert vector_store is not None
+    if hasattr(vector_store, "_store"):
+        assert vector_store._store.get("graph_nodes")  # type: ignore[attr-defined]
