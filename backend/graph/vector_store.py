@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import math
+import sqlite3
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
 
 try:  # pragma: no cover - optional dependency
@@ -82,6 +84,93 @@ class InMemoryVectorStore(BaseVectorStore):
         if norm_a == 0.0 or norm_b == 0.0:
             return -1.0
         return float(dot / (norm_a * norm_b))
+
+
+class SqliteVectorStore(BaseVectorStore):
+    """File-backed store that keeps embeddings across process restarts."""
+
+    def __init__(self, path: str) -> None:
+        self.path = Path(path)
+        if not self.path.parent.exists():
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn = sqlite3.connect(self.path)
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        with self._conn:
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS vectors (
+                    namespace TEXT NOT NULL,
+                    id TEXT NOT NULL,
+                    vector TEXT NOT NULL,
+                    metadata TEXT,
+                    score REAL,
+                    updated_at REAL DEFAULT (strftime('%s','now')),
+                    PRIMARY KEY(namespace, id)
+                )
+                """
+            )
+
+    def upsert(self, namespace: str, records: Iterable[VectorRecord]) -> None:
+        payload = [
+            (
+                namespace,
+                record.id,
+                json.dumps(list(record.vector)),
+                json.dumps(record.metadata or {}),
+                record.score,
+            )
+            for record in records
+        ]
+        if not payload:
+            return
+        with self._conn:
+            self._conn.executemany(
+                """
+                INSERT INTO vectors(namespace, id, vector, metadata, score)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(namespace, id) DO UPDATE SET
+                    vector = excluded.vector,
+                    metadata = excluded.metadata,
+                    score = excluded.score,
+                    updated_at = strftime('%s','now')
+                """,
+                payload,
+            )
+
+    def delete_namespace(self, namespace: str) -> None:
+        with self._conn:
+            self._conn.execute("DELETE FROM vectors WHERE namespace = ?", (namespace,))
+
+    def query(self, namespace: str, vector: Sequence[float], *, top_k: int = 10) -> List[VectorRecord]:
+        query_vec = tuple(float(x) for x in vector)
+        with self._conn:
+            rows = self._conn.execute(
+                "SELECT id, vector, metadata, score FROM vectors WHERE namespace = ?",
+                (namespace,),
+            ).fetchall()
+        scored: List[Tuple[float, VectorRecord]] = []
+        for record_id, vector_json, metadata_json, score_val in rows:
+            try:
+                stored_vector = tuple(float(x) for x in json.loads(vector_json))
+            except Exception:
+                continue
+            similarity = InMemoryVectorStore._cosine_similarity(query_vec, stored_vector)
+            metadata = json.loads(metadata_json) if metadata_json else {}
+            scored.append(
+                (
+                    similarity,
+                    VectorRecord(
+                        id=str(record_id),
+                        vector=stored_vector,
+                        metadata=dict(metadata),
+                        score=score_val,
+                    ),
+                )
+            )
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [record for _, record in scored[:top_k]]
 
 
 class PgVectorStore(BaseVectorStore):  # pragma: no cover - optional dependency
@@ -211,12 +300,18 @@ def build_vector_store(config: VectorStoreConfig | None) -> BaseVectorStore:
             return PgVectorStore(config)
         except Exception:
             return InMemoryVectorStore()
+    if config and config.sqlite_path:
+        try:
+            return SqliteVectorStore(config.sqlite_path)
+        except Exception:
+            return InMemoryVectorStore()
     return InMemoryVectorStore()
 
 
 __all__ = [
     "BaseVectorStore",
     "InMemoryVectorStore",
+    "SqliteVectorStore",
     "PgVectorStore",
     "VectorRecord",
     "build_vector_store",

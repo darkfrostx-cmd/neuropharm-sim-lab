@@ -9,6 +9,7 @@ from typing import Dict, Mapping
 
 import numpy as np
 import numpy.typing as npt
+from scipy.integrate import solve_ivp
 
 from ._integration import trapezoid_integral
 from .assets import get_default_ospsuite_project_path, load_reference_pbpk_curves
@@ -207,6 +208,83 @@ def _two_compartment_model(params: PKPDParameters) -> PKPDProfile:
     )
 
 
+def _two_compartment_ivp(params: PKPDParameters) -> PKPDProfile:
+    horizon = float(max(params.simulation_hours, params.time_step))
+    dose_times = [0.0]
+    if params.regimen == "chronic" and params.dosing_interval_h > 0:
+        n_doses = int(np.floor(horizon / params.dosing_interval_h))
+        dose_times.extend(float(i * params.dosing_interval_h) for i in range(1, n_doses + 1))
+
+    absorbed_dose = max(params.dose_mg * max(params.bioavailability, 0.0), 0.0)
+    clearance = max(params.clearance_rate, 1e-4)
+    k12 = float(max(1e-4, 0.25 + 0.35 * params.brain_plasma_ratio))
+    k21 = float(max(1e-4, 0.05 + 0.1 * (1.0 - params.brain_plasma_ratio)))
+    kbrain_clear = float(max(1e-4, clearance * 0.25))
+
+    def dosing_rate(t: float) -> float:
+        width = 0.35
+        return sum(absorbed_dose * np.exp(-((t - dose_time) ** 2) / (2 * width ** 2)) / (width * np.sqrt(2 * np.pi)) for dose_time in dose_times)
+
+    def dynamics(t: float, state: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        plasma_level, brain_level = state
+        input_rate = dosing_rate(t)
+        d_plasma = input_rate - clearance * plasma_level - k12 * plasma_level + k21 * brain_level
+        d_brain = k12 * plasma_level - (k21 + kbrain_clear) * brain_level
+        return np.array([d_plasma, d_brain], dtype=float)
+
+    time_eval = np.arange(0.0, horizon + params.time_step, params.time_step)
+    solution = solve_ivp(
+        dynamics,
+        (0.0, horizon),
+        y0=np.array([0.0, 0.0], dtype=float),
+        t_eval=time_eval,
+        max_step=float(params.time_step),
+    )
+    if not solution.success:
+        raise RuntimeError(f"SciPy PK/PD solver failed: {solution.message}")
+
+    plasma = np.clip(solution.y[0], 0.0, None)
+    brain = np.clip(solution.y[1], 0.0, None)
+
+    occupancy_profiles: Dict[str, npt.NDArray[np.float64]] = {}
+    for receptor, baseline in params.receptor_occupancy.items():
+        baseline = float(max(1e-3, baseline))
+        kd = max(1e-3, (1.0 - baseline))
+        curve = brain / (brain + kd)
+        occupancy_profiles[receptor] = np.clip(curve, 0.0, 1.0)
+
+    region_concentration = {
+        "prefrontal": (brain * 1.05).astype(float),
+        "striatum": (brain * 0.92).astype(float),
+        "amygdala": (brain * 1.08).astype(float),
+    }
+
+    summary: Dict[str, float | str | Dict[str, list[float]]] = {
+        "auc": trapezoid_integral(plasma, solution.t),
+        "cmax": float(np.max(plasma)),
+        "exposure_index": trapezoid_integral(brain, solution.t) / (horizon + 1e-6),
+        "duration_h": horizon,
+        "regimen": params.regimen,
+        "backend": "scipy",
+        "occupancy_profile": {name: curve.astype(float).tolist() for name, curve in occupancy_profiles.items()},
+        "terminal_occupancy": {name: float(curve[-1]) for name, curve in occupancy_profiles.items()},
+        "region_brain_concentration": {name: conc.astype(float).tolist() for name, conc in region_concentration.items()},
+    }
+    kg_conf = float(np.clip(params.kg_confidence, 0.0, 1.0))
+    uncertainty = {
+        "pkpd": float(max(0.05, 1.0 - kg_conf * 0.95)),
+        "exposure": float(max(0.05, 1.0 - kg_conf * 0.9)),
+    }
+
+    return PKPDProfile(
+        timepoints=solution.t,
+        plasma_concentration=plasma,
+        brain_concentration=brain,
+        summary=summary,
+        uncertainty=uncertainty,
+    )
+
+
 def simulate_pkpd(params: PKPDParameters) -> PKPDProfile:
     """Integrate a coarse PK/PD profile for the configured regimen."""
 
@@ -220,9 +298,16 @@ def simulate_pkpd(params: PKPDParameters) -> PKPDProfile:
             time = np.arange(0.0, params.simulation_hours + max(params.time_step, 1e-3), max(params.time_step, 1e-3))
             return _simulate_with_ospsuite(params, time)
         except Exception as exc:  # pragma: no cover - optional path
-            LOGGER.debug("OSPSuite backend unavailable (%s); falling back to analytic integrator", exc)
+            LOGGER.debug("OSPSuite backend unavailable (%s); falling back to SciPy integrator", exc)
 
-    return _two_compartment_model(params)
+    if backend in {"scipy", "high_fidelity"}:
+        return _two_compartment_ivp(params)
+
+    try:
+        return _two_compartment_ivp(params)
+    except Exception as exc:  # pragma: no cover - defensive path
+        LOGGER.debug("SciPy PK/PD integrator failed (%s); falling back to analytic solver", exc)
+        return _two_compartment_model(params)
 
 
 __all__ = ["PKPDParameters", "PKPDProfile", "simulate_pkpd", "HAS_OSPSUITE"]

@@ -145,6 +145,7 @@ class VectorStoreConfig:
     options: MutableMapping[str, str] = field(default_factory=dict)
     pool_min: int = 1
     pool_max: int = 4
+    sqlite_path: Optional[str] = ".cache/embeddings.sqlite"
 
     def is_configured(self) -> bool:
         """Return ``True`` when a connection URL or host has been supplied."""
@@ -215,6 +216,8 @@ class VectorStoreConfig:
                 option_key = key[len(opt_prefix) :].lower()
                 options[option_key] = value
 
+        sqlite_path = env.get(f"{prefix}SQLITE_PATH")
+
         return cls(
             url=raw_url,
             host=host,
@@ -227,6 +230,7 @@ class VectorStoreConfig:
             options=options,
             pool_min=pool_min,
             pool_max=pool_max,
+            sqlite_path=sqlite_path or ".cache/embeddings.sqlite",
         )
 
 

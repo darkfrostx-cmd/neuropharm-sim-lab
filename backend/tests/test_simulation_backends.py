@@ -202,38 +202,38 @@ def test_circuit_prefers_tvb_when_available(monkeypatch: pytest.MonkeyPatch, cir
     assert response.timepoints.shape[0] == circuit_params.timepoints.shape[0]
 
 
-def test_molecular_falls_back_to_analytic(monkeypatch: pytest.MonkeyPatch, cascade_params: MolecularCascadeParams) -> None:
+def test_molecular_falls_back_to_scipy(monkeypatch: pytest.MonkeyPatch, cascade_params: MolecularCascadeParams) -> None:
     monkeypatch.delenv("MOLECULAR_SIM_BACKEND", raising=False)
     monkeypatch.setattr(molecular, "Model", None, raising=False)
     monkeypatch.setattr(molecular, "HAS_PYSB", False, raising=False)
 
     result = molecular.simulate_cascade(cascade_params)
 
-    assert result.summary["backend"] == "analytic"
+    assert result.summary["backend"] == "scipy"
     assert set(result.node_activity) == set(cascade_params.downstream_nodes)
     assert all(np.all(node_activity >= 0.0) for node_activity in result.node_activity.values())
 
 
-def test_pkpd_falls_back_to_analytic(monkeypatch: pytest.MonkeyPatch, pkpd_params: PKPDParameters) -> None:
+def test_pkpd_falls_back_to_scipy(monkeypatch: pytest.MonkeyPatch, pkpd_params: PKPDParameters) -> None:
     monkeypatch.delenv("PKPD_SIM_BACKEND", raising=False)
     monkeypatch.setattr(pkpd, "HAS_OSPSUITE", False, raising=False)
     monkeypatch.setattr(pkpd, "ospsuite", None, raising=False)
 
     profile = pkpd.simulate_pkpd(pkpd_params)
 
-    assert profile.summary["backend"] == "analytic"
+    assert profile.summary["backend"] == "scipy"
     assert profile.timepoints[0] == pytest.approx(0.0)
     assert np.all(profile.plasma_concentration >= 0.0)
     assert np.all(profile.brain_concentration >= 0.0)
 
 
-def test_circuit_falls_back_to_analytic(monkeypatch: pytest.MonkeyPatch, circuit_params: CircuitParameters) -> None:
+def test_circuit_falls_back_to_scipy(monkeypatch: pytest.MonkeyPatch, circuit_params: CircuitParameters) -> None:
     monkeypatch.delenv("CIRCUIT_SIM_BACKEND", raising=False)
     monkeypatch.setattr(circuit, "HAS_TVB", False, raising=False)
     monkeypatch.setattr(circuit, "connectivity", None, raising=False)
 
     response = circuit.simulate_circuit_response(circuit_params)
 
-    assert response.global_metrics["backend"] == "analytic"
+    assert response.global_metrics["backend"] == "scipy"
     assert set(response.region_activity) == set(circuit_params.regions)
     assert response.timepoints.shape[0] == circuit_params.timepoints.shape[0]

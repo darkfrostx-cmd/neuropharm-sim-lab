@@ -1,4 +1,5 @@
 from backend.graph.models import BiolinkPredicate, Node, BiolinkEntity
+from backend.graph.models import BiolinkEntity, BiolinkPredicate, Node
 from backend.graph.text_mining import SciSpaCyExtractor, TextMiningPipeline
 
 
@@ -24,8 +25,14 @@ def test_text_mining_pipeline_extracts_relations_from_inline_tei() -> None:
     nodes, edges = pipeline.mine(record, make_work_node())
     assert nodes
     assert edges
+    by_id = {node.id: node for node in nodes}
+    assert "CHEBI:18243" in by_id
+    assert by_id["CHEBI:18243"].category == BiolinkEntity.CHEMICAL_SUBSTANCE
+    assert "CHEBI:16865" in by_id  # GABA grounding
     affects_edges = [edge for edge in edges if edge.predicate == BiolinkPredicate.AFFECTS]
     assert len(affects_edges) == 2
-    assert any("activates" in edge.qualifiers.get("source_sentence", "").lower() for edge in affects_edges)
-    assert any("inhibits" in edge.qualifiers.get("source_sentence", "").lower() for edge in affects_edges)
+    first_edge = affects_edges[0]
+    assert first_edge.relation in {"biolink:positively_regulates", "biolink:negatively_regulates"}
+    assert "agent_grounding" in first_edge.qualifiers
+    assert first_edge.evidence[0].annotations["grounding_confidence"]["agent"] > 0.5
 
