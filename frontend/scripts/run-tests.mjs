@@ -17,8 +17,15 @@ function run(command, commandArgs) {
   })
 }
 
+const shouldInstallBrowsers = process.env.PLAYWRIGHT_SKIP_BROWSER_INSTALL !== '1'
+
 try {
   await run('npx', ['vitest', 'run', ...cleanedArgs])
+
+  if (shouldInstallBrowsers) {
+    await run('npx', ['playwright', 'install', '--with-deps', 'chromium'])
+  }
+
   await run('npx', ['playwright', 'test', ...cleanedArgs])
 } catch (error) {
   console.error(error)

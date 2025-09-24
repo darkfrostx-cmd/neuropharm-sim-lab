@@ -47,7 +47,7 @@ class PKPDProfile:
     timepoints: npt.NDArray[np.float64]
     plasma_concentration: npt.NDArray[np.float64]
     brain_concentration: npt.NDArray[np.float64]
-    summary: Dict[str, float | str]
+    summary: Dict[str, float | str | Dict[str, list[float]]]
     uncertainty: Dict[str, float]
 
 
@@ -78,18 +78,30 @@ def _simulate_with_ospsuite(params: PKPDParameters, time: npt.NDArray[np.float64
     source_time = getattr(simulation, "time", None)
     source_plasma = getattr(simulation, "plasma_concentration", None)
     source_brain = getattr(simulation, "brain_concentration", None)
+    region_reference: Dict[str, npt.NDArray[np.float64]] = {}
     if (
         source_time is None
         or source_plasma is None
         or source_brain is None
         or len(source_time) == 0
     ):
-        fallback_time, fallback_plasma, fallback_brain = load_reference_pbpk_curves()
+        fallback_time, fallback_plasma, fallback_brain, fallback_regions = load_reference_pbpk_curves()
         source_time = fallback_time
         source_plasma = fallback_plasma
         source_brain = fallback_brain
+        region_reference = fallback_regions
+    else:
+        _, _, _, fallback_regions = load_reference_pbpk_curves()
+        region_reference = fallback_regions
     plasma = np.interp(time, np.asarray(source_time, dtype=float), np.asarray(source_plasma, dtype=float))
     brain = np.interp(time, np.asarray(source_time, dtype=float), np.asarray(source_brain, dtype=float))
+
+    region_concentration: Dict[str, npt.NDArray[np.float64]] = {}
+    for region, values in region_reference.items():
+        try:
+            region_concentration[region] = np.interp(time, np.asarray(source_time, dtype=float), values.astype(float))
+        except Exception:  # pragma: no cover - defensive fallback
+            region_concentration[region] = np.interp(time, np.asarray(source_time, dtype=float), np.asarray(source_brain, dtype=float))
 
     occupancy_profiles: Dict[str, npt.NDArray[np.float64]] = {}
     for receptor, baseline in params.receptor_occupancy.items():
@@ -107,6 +119,7 @@ def _simulate_with_ospsuite(params: PKPDParameters, time: npt.NDArray[np.float64
         "backend": "ospsuite",
         "occupancy_profile": {name: curve.astype(float).tolist() for name, curve in occupancy_profiles.items()},
         "terminal_occupancy": {name: float(curve[-1]) for name, curve in occupancy_profiles.items()},
+        "region_brain_concentration": {name: conc.astype(float).tolist() for name, conc in region_concentration.items()},
     }
     uncertainty = {
         "pkpd": float(max(0.05, 1.0 - np.clip(params.kg_confidence, 0.0, 1.0))),
@@ -162,6 +175,12 @@ def _two_compartment_model(params: PKPDParameters) -> PKPDProfile:
         curve = brain / (brain + kd)
         occupancy_profiles[receptor] = np.clip(curve, 0.0, 1.0)
 
+    region_concentration = {
+        "prefrontal": (brain * 1.05).astype(float),
+        "striatum": (brain * 0.92).astype(float),
+        "amygdala": (brain * 1.08).astype(float),
+    }
+
     summary: Dict[str, float | str | Dict[str, list[float]]] = {
         "auc": auc,
         "cmax": cmax,
@@ -171,6 +190,7 @@ def _two_compartment_model(params: PKPDParameters) -> PKPDProfile:
         "backend": "analytic",
         "occupancy_profile": {name: curve.astype(float).tolist() for name, curve in occupancy_profiles.items()},
         "terminal_occupancy": {name: float(curve[-1]) for name, curve in occupancy_profiles.items()},
+        "region_brain_concentration": {name: conc.astype(float).tolist() for name, conc in region_concentration.items()},
     }
     kg_conf = float(np.clip(params.kg_confidence, 0.0, 1.0))
     uncertainty = {

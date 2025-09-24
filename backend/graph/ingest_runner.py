@@ -12,6 +12,7 @@ from typing import List
 from .ingest_base import BaseIngestionJob, IngestionReport
 from .ingest_atlases import AllenAtlasIngestion, EBrainsAtlasIngestion
 from .ingest_chembl import BindingDBIngestion, ChEMBLIngestion, IUPHARIngestion
+from .ingest_pdsp import PDSPKiIngestion
 from .ingest_indra import IndraIngestion
 from .ingest_openalex import OpenAlexIngestion
 from .models import BiolinkEntity, BiolinkPredicate, Edge, Evidence, Node
@@ -36,6 +37,7 @@ def _default_jobs() -> List[BaseIngestionJob]:
     for job_cls in (
         ChEMBLIngestion,
         BindingDBIngestion,
+        PDSPKiIngestion,
         IUPHARIngestion,
         IndraIngestion,
         AllenAtlasIngestion,

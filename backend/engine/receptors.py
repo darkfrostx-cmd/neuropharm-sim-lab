@@ -244,6 +244,34 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
         },
         "description": "Oxytocin receptor; facilitates social bonding, trust and affiliation particularly in limbic-prefrontal loops.",
     },
+    "TRKB": {
+        "weights": {
+            "drive": 0.3,
+            "apathy": -0.35,
+            "motivation": 0.35,
+            "cognitive_flexibility": 0.25,
+            "anxiety": -0.2,
+            "sleep_quality": 0.15,
+            "social_affiliation": 0.32,
+            "exploration": 0.22,
+            "salience": 0.18,
+        },
+        "description": "TrkB (NTRK2) neurotrophin receptor; activation supports BDNF-dependent plasticity, AMPA potentiation and rapid antidepressant responses.",
+    },
+    "ADRA2A": {
+        "weights": {
+            "drive": 0.05,
+            "apathy": -0.22,
+            "motivation": 0.18,
+            "cognitive_flexibility": 0.35,
+            "anxiety": -0.18,
+            "sleep_quality": 0.1,
+            "social_affiliation": 0.12,
+            "exploration": -0.28,
+            "salience": -0.08,
+        },
+        "description": "α2A-adrenergic receptor; engages PFC HCN channel closure to stabilise working memory and top-down control while tempering exploratory drive.",
+    },
     # You can extend this dictionary with additional receptors or neuromodulators.
 }
 
@@ -322,6 +350,18 @@ def canonical_receptor_name(name: str) -> str:
         return compact
 
     compact_no_dash = compact.replace("-", "")
+    alias_map = {
+        "NTRK2": "TRKB",
+        "TRKB": "TRKB",
+        "BDNFR": "TRKB",
+        "ADRA2A": "ADRA2A",
+        "ALPHA2A": "ADRA2A",
+        "ADRENALPHA2A": "ADRA2A",
+    }
+    if compact_no_dash in alias_map:
+        target = alias_map[compact_no_dash]
+        if target in RECEPTORS:
+            return target
     for canon in RECEPTORS:
         if compact_no_dash == canon.replace("-", ""):
             return canon

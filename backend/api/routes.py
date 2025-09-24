@@ -232,6 +232,7 @@ def run_simulation(
         adhd=request.adhd,
         gut_bias=request.gut_bias,
         pvt_weight=request.pvt_weight,
+        assumptions=request.assumptions,
     )
     try:
         result = svc.simulation_engine.run(engine_request)
@@ -257,6 +258,7 @@ def run_simulation(
         citations=citations,
         confidence=result.confidence,
         uncertainty=uncertainty,
+        behavioral_tags={metric: schemas.BehavioralTagAnnotation(**annotation) for metric, annotation in result.behavioral_tags.items()},
     )
 
 
@@ -366,13 +368,16 @@ def find_graph_gaps(
         metadata.setdefault("context_weight", 1.0)
         metadata.setdefault("context_label", "")
         metadata.setdefault("raw_score", float(gap.embedding_score or 0.0))
+        metadata.setdefault("context_uncertainty", metadata.get("context_uncertainty", 0.5))
         context_weight = float(metadata.get("context_weight", 1.0)) if metadata else 1.0
         raw_score = float(metadata.get("raw_score", gap.embedding_score or 0.0))
+        context_uncertainty = float(metadata.get("context_uncertainty", 0.5))
         impact_component = float(max(0.0, min(1.0, abs(gap.embedding_score or 0.0))))
+        combined = min(0.9, 0.25 * context_weight + 0.25 * impact_component + 0.3 * context_uncertainty)
         uncertainty = float(
             max(
                 0.05,
-                min(0.95, 1.0 - min(0.9, 0.3 * context_weight + 0.2 * impact_component)),
+                min(0.95, 1.0 - combined),
             )
         )
         causal_payload = schemas.CausalDiagnostics.from_domain(gap.causal) if gap.causal else None

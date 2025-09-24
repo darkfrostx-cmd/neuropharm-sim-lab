@@ -79,10 +79,11 @@ def test_reference_assets_are_packaged() -> None:
     project_path = Path(get_default_ospsuite_project_path())
     assert project_path.exists()
 
-    time, plasma, brain = load_reference_pbpk_curves()
+    time, plasma, brain, region_curves = load_reference_pbpk_curves()
     assert time.size > 0 and plasma.size == time.size and brain.size == time.size
     assert np.all(plasma >= 0.0)
     assert np.all(brain >= 0.0)
+    assert region_curves and all(series.size == time.size for series in region_curves.values())
 
     regions, weights = load_reference_connectivity()
     assert regions
@@ -110,7 +111,7 @@ def test_molecular_prefers_pysb_when_available(monkeypatch: pytest.MonkeyPatch, 
 def test_pkpd_prefers_ospsuite_when_available(
     monkeypatch: pytest.MonkeyPatch, pkpd_params: PKPDParameters
 ) -> None:
-    time, plasma, brain = load_reference_pbpk_curves()
+    time, plasma, brain, region_curves = load_reference_pbpk_curves()
 
     class _FakeSimulation:
         def __init__(self, model: object) -> None:
@@ -118,6 +119,7 @@ def test_pkpd_prefers_ospsuite_when_available(
             self.time = time
             self.plasma_concentration = plasma
             self.brain_concentration = brain
+            self.region_curves = region_curves
 
         def set_dosing(self, **_: float) -> None:
             return None

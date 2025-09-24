@@ -81,6 +81,7 @@ async def test_simulate_endpoint_returns_confidence_and_timecourse(serotonin_gra
     data = response.json()
     assert "DriveInvigoration" in data["scores"]
     assert 0.0 <= data["confidence"]["DriveInvigoration"] <= 1.0
+    assert data["behavioral_tags"]["DriveInvigoration"]["rdoc"]["id"] == "RDoC:POS_APPR"
     assert len(data["details"]["timepoints"]) == len(data["details"]["trajectories"]["plasma_concentration"])
     assert data["details"]["receptor_context"]["5-HT1A"]["kg_weight"] >= data["details"]["receptor_context"]["5-HT2A"]["kg_weight"]
 

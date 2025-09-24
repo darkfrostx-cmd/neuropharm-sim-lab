@@ -259,6 +259,7 @@ class SimulationRequest(BaseModel):
     adhd: bool = False
     gut_bias: bool = False
     pvt_weight: float = Field(default=0.5, ge=0.0, le=1.0)
+    assumptions: Mapping[str, bool] = Field(default_factory=dict)
 
 
 class Citation(BaseModel):
@@ -274,12 +275,25 @@ class SimulationDetails(BaseModel):
     receptor_context: Mapping[str, Dict[str, Any]]
 
 
+class ControlledTerm(BaseModel):
+    id: str
+    label: str
+
+
+class BehavioralTagAnnotation(BaseModel):
+    label: str
+    domain: str | None = None
+    rdoc: ControlledTerm | None = None
+    cogatlas: ControlledTerm | None = Field(default=None, alias="cogatlas")
+
+
 class SimulationResponse(BaseModel):
     scores: Mapping[str, float]
     details: SimulationDetails
     citations: Mapping[str, Sequence[Citation]]
     confidence: Mapping[str, float]
     uncertainty: Mapping[str, float]
+    behavioral_tags: Mapping[str, BehavioralTagAnnotation] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -342,6 +356,8 @@ __all__ = [
     "Citation",
     "CounterfactualEstimate",
     "CausalDiagnostics",
+    "ControlledTerm",
+    "BehavioralTagAnnotation",
     "ErrorPayload",
     "EvidenceHit",
     "EvidenceProvenance",
