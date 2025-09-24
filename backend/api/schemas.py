@@ -7,6 +7,9 @@ from typing import Any, Dict, Iterable, Mapping, Sequence, Literal
 
 from pydantic import BaseModel, Field
 
+from ..atlas import AtlasCoordinate as DomainAtlasCoordinate
+from ..atlas import AtlasOverlay as DomainAtlasOverlay
+from ..atlas import AtlasVolume as DomainAtlasVolume
 from ..graph.models import BiolinkPredicate, Edge, Evidence, Node
 from ..reasoning import CausalSummary, CounterfactualScenario
 
@@ -204,6 +207,63 @@ class GraphExpandResponse(BaseModel):
     centre: str
     nodes: Sequence[GraphNode]
     edges: Sequence[GraphEdge]
+
+
+# ---------------------------------------------------------------------------
+# Atlas overlays
+# ---------------------------------------------------------------------------
+
+
+class AtlasCoordinate(BaseModel):
+    reference_space: int | None = Field(default=None)
+    x_mm: float | None = Field(default=None)
+    y_mm: float | None = Field(default=None)
+    z_mm: float | None = Field(default=None)
+    source: str
+
+    @classmethod
+    def from_domain(cls, coord: DomainAtlasCoordinate) -> "AtlasCoordinate":
+        return cls(
+            reference_space=coord.reference_space,
+            x_mm=coord.x_mm,
+            y_mm=coord.y_mm,
+            z_mm=coord.z_mm,
+            source=coord.source,
+        )
+
+
+class AtlasVolume(BaseModel):
+    name: str
+    url: str
+    format: str
+    description: str | None = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_domain(cls, volume: DomainAtlasVolume) -> "AtlasVolume":
+        return cls(
+            name=volume.name,
+            url=volume.url,
+            format=volume.format,
+            description=volume.description,
+            metadata=dict(volume.metadata),
+        )
+
+
+class AtlasOverlayResponse(BaseModel):
+    node_id: str
+    provider: str
+    coordinates: Sequence[AtlasCoordinate]
+    volumes: Sequence[AtlasVolume]
+
+    @classmethod
+    def from_domain(cls, overlay: DomainAtlasOverlay) -> "AtlasOverlayResponse":
+        return cls(
+            node_id=overlay.node_id,
+            provider=overlay.provider,
+            coordinates=[AtlasCoordinate.from_domain(coord) for coord in overlay.coordinates],
+            volumes=[AtlasVolume.from_domain(volume) for volume in overlay.volumes],
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,224 @@
+"""Vector-store abstractions for gap ranking."""
+
+from __future__ import annotations
+
+import json
+import math
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Tuple
+
+try:  # pragma: no cover - optional dependency
+    import psycopg
+    from psycopg import sql
+except Exception:  # pragma: no cover - optional dependency
+    psycopg = None  # type: ignore[assignment]
+    sql = None  # type: ignore[assignment]
+
+from ..config import VectorStoreConfig
+
+
+@dataclass(slots=True)
+class VectorRecord:
+    """Representation of a stored embedding."""
+
+    id: str
+    vector: Tuple[float, ...]
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    score: float | None = None
+
+
+class BaseVectorStore:
+    """Abstract persistence layer used by the gap finder."""
+
+    def upsert(self, namespace: str, records: Iterable[VectorRecord]) -> None:  # pragma: no cover - interface
+        raise NotImplementedError
+
+    def delete_namespace(self, namespace: str) -> None:  # pragma: no cover - interface
+        raise NotImplementedError
+
+    def query(
+        self,
+        namespace: str,
+        vector: Sequence[float],
+        *,
+        top_k: int = 10,
+    ) -> List[VectorRecord]:  # pragma: no cover - interface
+        raise NotImplementedError
+
+
+class InMemoryVectorStore(BaseVectorStore):
+    """Simple cosine-similarity implementation for tests and local runs."""
+
+    def __init__(self) -> None:
+        self._store: Dict[str, Dict[str, VectorRecord]] = {}
+
+    def upsert(self, namespace: str, records: Iterable[VectorRecord]) -> None:
+        bucket = self._store.setdefault(namespace, {})
+        for record in records:
+            bucket[record.id] = record
+
+    def delete_namespace(self, namespace: str) -> None:
+        self._store.pop(namespace, None)
+
+    def query(self, namespace: str, vector: Sequence[float], *, top_k: int = 10) -> List[VectorRecord]:
+        bucket = self._store.get(namespace)
+        if not bucket:
+            return []
+        query_vec = tuple(float(x) for x in vector)
+        scored: List[Tuple[float, VectorRecord]] = []
+        for record in bucket.values():
+            similarity = self._cosine_similarity(query_vec, record.vector)
+            scored.append((similarity, record))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [record for _, record in scored[:top_k]]
+
+    @staticmethod
+    def _cosine_similarity(vec_a: Sequence[float], vec_b: Sequence[float]) -> float:
+        if len(vec_a) != len(vec_b) or not vec_a:
+            return -1.0
+        dot = sum(float(a) * float(b) for a, b in zip(vec_a, vec_b))
+        norm_a = math.sqrt(sum(float(a) ** 2 for a in vec_a))
+        norm_b = math.sqrt(sum(float(b) ** 2 for b in vec_b))
+        if norm_a == 0.0 or norm_b == 0.0:
+            return -1.0
+        return float(dot / (norm_a * norm_b))
+
+
+class PgVectorStore(BaseVectorStore):  # pragma: no cover - optional dependency
+    """pgvector-backed store used in production deployments."""
+
+    def __init__(self, config: VectorStoreConfig) -> None:
+        if psycopg is None or sql is None:
+            raise ImportError("psycopg is required for PgVectorStore")
+        self.config = config
+        self._schema = config.schema or "public"
+        self._table = config.table or "embedding_cache"
+        self._conn = self._connect()
+
+    # ------------------------------------------------------------------
+    # Connection helpers
+    # ------------------------------------------------------------------
+    def _connect(self) -> "psycopg.Connection[tuple[()]]":
+        if self.config.dsn:
+            return psycopg.connect(self.config.dsn)  # type: ignore[arg-type]
+        return psycopg.connect(  # type: ignore[arg-type]
+            host=self.config.host,
+            port=self.config.port,
+            dbname=self.config.database,
+            user=self.config.username,
+            password=self.config.password,
+        )
+
+    def _ensure_schema(self, dimension: int) -> None:
+        with self._conn.cursor() as cur:  # type: ignore[arg-type]
+            schema_stmt = sql.SQL("CREATE SCHEMA IF NOT EXISTS {}" ).format(sql.Identifier(self._schema))
+            cur.execute(schema_stmt)
+            try:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            except Exception:
+                self._conn.rollback()
+            else:
+                self._conn.commit()
+        with self._conn.cursor() as cur:  # type: ignore[arg-type]
+            create_table = sql.SQL(
+                "CREATE TABLE IF NOT EXISTS {}.{} ("
+                " namespace TEXT NOT NULL,"
+                " id TEXT NOT NULL,"
+                " embedding vector({}),"
+                " metadata JSONB,"
+                " score DOUBLE PRECISION,"
+                " updated_at TIMESTAMPTZ DEFAULT NOW(),"
+                " PRIMARY KEY(namespace, id)"
+                ")"
+            ).format(
+                sql.Identifier(self._schema),
+                sql.Identifier(self._table),
+                sql.SQL(str(int(dimension))),
+            )
+            cur.execute(create_table)
+            self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # Interface implementation
+    # ------------------------------------------------------------------
+    def upsert(self, namespace: str, records: Iterable[VectorRecord]) -> None:
+        records = list(records)
+        if not records:
+            return
+        dimension = len(records[0].vector)
+        self._ensure_schema(dimension)
+        with self._conn.cursor() as cur:  # type: ignore[arg-type]
+            statement = sql.SQL(
+                "INSERT INTO {}.{} (namespace, id, embedding, metadata, score)"
+                " VALUES (%s, %s, %s, %s::jsonb, %s)"
+                " ON CONFLICT (namespace, id)"
+                " DO UPDATE SET embedding = EXCLUDED.embedding, metadata = EXCLUDED.metadata,"
+                " score = EXCLUDED.score, updated_at = NOW()"
+            ).format(sql.Identifier(self._schema), sql.Identifier(self._table))
+            payload = [
+                (
+                    namespace,
+                    record.id,
+                    list(record.vector),
+                    json.dumps(record.metadata or {}),
+                    record.score,
+                )
+                for record in records
+            ]
+            cur.executemany(statement, payload)
+            self._conn.commit()
+
+    def delete_namespace(self, namespace: str) -> None:
+        with self._conn.cursor() as cur:  # type: ignore[arg-type]
+            statement = sql.SQL("DELETE FROM {}.{} WHERE namespace = %s").format(
+                sql.Identifier(self._schema), sql.Identifier(self._table)
+            )
+            cur.execute(statement, (namespace,))
+            self._conn.commit()
+
+    def query(self, namespace: str, vector: Sequence[float], *, top_k: int = 10) -> List[VectorRecord]:
+        with self._conn.cursor() as cur:  # type: ignore[arg-type]
+            statement = sql.SQL(
+                "SELECT id, embedding, metadata, score FROM {}.{}"
+                " WHERE namespace = %s"
+                " ORDER BY embedding <-> %s"
+                " LIMIT %s"
+            ).format(sql.Identifier(self._schema), sql.Identifier(self._table))
+            cur.execute(statement, (namespace, list(vector), top_k))
+            rows = cur.fetchall()
+        results: List[VectorRecord] = []
+        for row in rows:
+            record_id: str = row[0]
+            embedding: Sequence[float] = row[1]
+            metadata_raw = row[2] or {}
+            score_val = row[3]
+            metadata = metadata_raw if isinstance(metadata_raw, dict) else json.loads(metadata_raw)
+            results.append(
+                VectorRecord(
+                    id=record_id,
+                    vector=tuple(float(x) for x in embedding),
+                    metadata=dict(metadata),
+                    score=score_val,
+                )
+            )
+        return results
+
+
+
+def build_vector_store(config: VectorStoreConfig | None) -> BaseVectorStore:
+    if config and config.is_configured():
+        try:
+            return PgVectorStore(config)
+        except Exception:
+            return InMemoryVectorStore()
+    return InMemoryVectorStore()
+
+
+__all__ = [
+    "BaseVectorStore",
+    "InMemoryVectorStore",
+    "PgVectorStore",
+    "VectorRecord",
+    "build_vector_store",
+]
+

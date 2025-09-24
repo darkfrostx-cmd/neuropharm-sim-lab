@@ -132,3 +132,38 @@ async def test_gaps_missing_node_returns_error(client):
     assert response.status_code == 404
     detail = response.json()["detail"]
     assert detail["code"] == "nodes_not_found"
+
+
+async def test_atlas_overlay_endpoint_returns_coordinates(monkeypatch, client):
+    stub_overlay = AtlasOverlay(
+        node_id="UBERON:0000955",
+        provider="Allen Brain Atlas",
+        coordinates=[AtlasCoordinate(reference_space=10, x_mm=7.5, y_mm=6.6, z_mm=4.7, source="allen")],
+        volumes=[
+            AtlasVolume(
+                name="Allen test volume",
+                url="https://example.org/atlas.nrrd",
+                format="nrrd",
+                metadata={"type": "segmentation"},
+            )
+        ],
+    )
+
+    class StubAtlasService:
+        def lookup(self, node_id: str) -> AtlasOverlay:
+            if node_id != stub_overlay.node_id:
+                raise KeyError(node_id)
+            return stub_overlay
+
+    from backend.api import routes as api_routes
+
+    monkeypatch.setattr(api_routes.services, "atlas_service", StubAtlasService())
+
+    response = await client.get(f"/atlas/overlays/{stub_overlay.node_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["node_id"] == stub_overlay.node_id
+    assert data["provider"] == "Allen Brain Atlas"
+    assert data["coordinates"][0]["x_mm"] == 7.5
+    assert data["volumes"][0]["format"] == "nrrd"
+from backend.atlas import AtlasCoordinate, AtlasOverlay, AtlasVolume

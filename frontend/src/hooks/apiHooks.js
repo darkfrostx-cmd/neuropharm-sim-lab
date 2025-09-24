@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { post } from '../api/client'
+import { get, post } from '../api/client'
 
 const endpoints = {
   expand: '/graph/expand',
@@ -71,6 +71,40 @@ export function useGapFinder() {
 
 export function useSimulation() {
   return useApiAction(endpoints.simulate)
+}
+
+export function useAtlasOverlay() {
+  const [data, setData] = useState(null)
+  const [status, setStatus] = useState('idle')
+  const [error, setError] = useState(null)
+
+  const fetchOverlay = useCallback(async (nodeId) => {
+    if (!nodeId) {
+      setData(null)
+      return null
+    }
+    setStatus('loading')
+    setError(null)
+    try {
+      const result = await get(`/atlas/overlays/${encodeURIComponent(nodeId)}`)
+      setData(result)
+      setStatus('success')
+      return result
+    } catch (err) {
+      const normalised = normaliseError(err)
+      setError(normalised)
+      setStatus('error')
+      throw normalised
+    }
+  }, [])
+
+  const reset = useCallback(() => {
+    setData(null)
+    setStatus('idle')
+    setError(null)
+  }, [])
+
+  return { data, status, error, fetch: fetchOverlay, reset }
 }
 
 export function deriveForceGraph(data) {

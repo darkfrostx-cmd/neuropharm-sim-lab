@@ -50,23 +50,28 @@ Install them only when you need the full PK/PD stack:
 pip install -e backend[mechanistic]
 ```
 
-The legacy `backend[simulation]` extra still works if you bookmarked the older docs.
-If you prefer requirements files, `backend/requirements-optional.txt` mirrors the same pins.
+This extra now bundles ready-to-run assets in `backend/simulation/assets`:
 
-Install the causal diagnostics extra when you want DoWhy/EconML-backed assumption
-graphs and counterfactuals surfaced in the `/gaps` and `/explain` endpoints:
+- `pysb_reference_pathway.json` (PySB): seeded with the HTR2A → ERK cascade so
+  full ODE integration kicks in automatically when PySB is present.
+- `pbpk_reference_project.json` (OSPSuite): a PBPK model that mirrors the analytic
+  fallback used by the default engine; install OSPSuite to run the full
+  compartmental simulation.
+- `tvb_reference_connectivity.json` (TVB): a lightweight structural connectome
+  used by the circuit module when the Virtual Brain stack is available.
+
+Users on the “free” stack can enable each backend independently:
 
 ```bash
-pip install -e backend[causal]
+pip install -e backend[text-mining]  # adds requests + optional scispaCy extras
+pip install -e backend[mechanistic]  # PySB + OSPSuite + TVB
+pip install -e backend[causal]       # DoWhy/EconML counterfactual diagnostics
 ```
 
-With the extra active the API responses include explicit assumption graphs,
-numerical counterfactual scenarios and refutation diagnostics alongside the
-lightweight analytic fallback.
-
-The backend now bundles reference PySB, OSPSuite and TVB assets under `backend/simulation/assets`,
-so the optional engines work out of the box once the extra is installed—no need to ship separate
-PK-Sim projects or connectivity matrices.
+Each extra extends the API responses transparently—counterfactual requests begin
+returning refutation diagnostics once the causal extra is installed, and the
+simulation endpoints automatically switch from the analytic fallback to the
+mechanistic engines when the corresponding toolkits are present.
 
 **Render fix:** Render will happily install the lean requirements, but PySB’s
 Fortran build chain fails on their default image. The included `render.yaml`
@@ -87,9 +92,10 @@ npm run dev -- --host 0.0.0.0 --port 5173
 
 Key features shipped by the React app:
 
-- **Atlas overlays (NiiVue):** hash any selected receptor/node into deterministic
-  MNI coordinates to keep the anatomical view responsive even without curated
-  ROI volumes.
+- **Atlas overlays (NiiVue):** the crosshair now anchors to true anatomical
+  centroids from the Allen Brain Atlas, and the viewer streams the official
+  10 µm CCF annotation volume plus EBRAINS surface meshes when available.
+  Hash-based fallbacks remain in place when no provenance is known.
 - **Graph neighbourhoods (Cytoscape + react-force-graph):** jump between
   top-down Cytoscape layouts and a bottom-up force graph with shared selection
   state.
@@ -114,6 +120,32 @@ npm test -- --watch=false
 
 `npm test` invokes both Vitest (unit) and Playwright (E2E) via a small wrapper
 script so CI and local runs behave the same way.
+
+## Automated literature text mining
+
+OpenAlex ingestion now pipes works through a GROBID → scispaCy → INDRA-inspired
+pipeline.  The default configuration is intentionally light-weight—the
+`TextMiningPipeline` falls back to deterministic pattern matching when spaCy
+models are unavailable—yet the structure mirrors a production deployment:
+
+1. PDFs are converted to TEI with the GROBID HTTP API (set `GROBID_URL` to point
+   at your instance).
+2. TEI text is parsed with scispaCy when the `en_core_sci_sm` model is installed,
+   otherwise a rule-based extractor looks for *activates/inhibits/modulates*
+   phrases.
+3. Candidate relations are assembled into Biolink nodes/edges and persisted with
+   provenance so downstream services can surface the textual snippet.
+
+You can enable the richer NLP stack by installing scispaCy and the associated
+models:
+
+```bash
+pip install scispacy
+python -m spacy download en_core_sci_sm
+```
+
+Point the ingestion orchestrator at a running GROBID container by exporting
+`GROBID_URL=http://localhost:8070` before executing the OpenAlex job.
 
 ## Deployment notes
 

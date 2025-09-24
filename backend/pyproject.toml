@@ -31,6 +31,10 @@ causal = [
     "dowhy>=0.11.1",
     "econml>=0.14.1",
 ]
+# Lightweight NLP extras used by the OpenAlex text-mining pipeline.
+text-mining = [
+    "scispacy>=0.5.1",
+]
 # Backwards compatibility with older installation instructions.
 simulation = [
     "pysb>=1.13.0",

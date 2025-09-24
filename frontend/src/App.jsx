@@ -9,6 +9,7 @@ import SimulationPanel from './components/SimulationPanel'
 import {
   deriveCytoscapeElements,
   deriveForceGraph,
+  useAtlasOverlay,
   useExplain,
   useGapFinder,
   useGraphExpand,
@@ -24,6 +25,7 @@ function App() {
   const explainAction = useExplain()
   const gapAction = useGapFinder()
   const simulationAction = useSimulation()
+  const atlasOverlay = useAtlasOverlay()
 
   const [selectedNode, setSelectedNode] = useState('')
   const [focusKey, setFocusKey] = useState('')
@@ -32,6 +34,10 @@ function App() {
   const graph = useMemoisedGraph(graphAction.data)
   const cytoscapeElements = useMemo(() => deriveCytoscapeElements(graphAction.data), [graphAction.data])
   const forceGraph = useMemo(() => deriveForceGraph(graphAction.data), [graphAction.data])
+  const focusNode = useMemo(
+    () => graph.nodes.find((node) => node.id === focusKey) ?? null,
+    [graph.nodes, focusKey],
+  )
 
   useEffect(() => {
     if (graphAction.data?.centre) {
@@ -51,6 +57,14 @@ function App() {
       setTimeIndex(simulationAction.data.details.timepoints.length - 1)
     }
   }, [simulationAction.data])
+
+  useEffect(() => {
+    if (focusKey) {
+      atlasOverlay.fetch(focusKey).catch(() => {})
+    } else {
+      atlasOverlay.reset()
+    }
+  }, [focusKey])
 
   const gapSuggestions = useMemo(() => graph.nodes.slice(0, 5).map((node) => node.id), [graph.nodes])
 
@@ -126,7 +140,7 @@ function App() {
           <div className="atlas-stack">
             <div className="atlas-panel">
               <h2>Top-down atlas view</h2>
-              <NiiVueCanvas focusKey={focusKey} />
+              <NiiVueCanvas focusNode={focusNode} overlay={atlasOverlay.data} />
             </div>
             <div className="atlas-panel">
               <h2>Knowledge graph (Cytoscape)</h2>

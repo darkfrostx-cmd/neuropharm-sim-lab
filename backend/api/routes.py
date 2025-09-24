@@ -8,6 +8,7 @@ from typing import Dict, Iterable, List, Set, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from ..engine.receptors import RECEPTORS, canonical_receptor_name, get_receptor_weights
+from ..atlas import AtlasOverlayService
 from ..graph.models import BiolinkPredicate
 from ..graph.service import EvidenceSummary, GraphService
 from ..simulation import (
@@ -27,10 +28,13 @@ class ServiceRegistry:
     simulation_engine: SimulationEngine = field(default_factory=lambda: SimulationEngine(time_step=1.0))
     receptor_adapter: GraphBackedReceptorAdapter | None = None
     receptor_references: Dict[str, List[Dict[str, str]]] = field(default_factory=dict)
+    atlas_service: AtlasOverlayService | None = None
 
     def __post_init__(self) -> None:
         if self.receptor_adapter is None:
             self.receptor_adapter = GraphBackedReceptorAdapter(self.graph_service)
+        if self.atlas_service is None:
+            self.atlas_service = AtlasOverlayService(self.graph_service)
 
     def configure(
         self,
@@ -39,6 +43,7 @@ class ServiceRegistry:
         simulation_engine: SimulationEngine | None = None,
         receptor_adapter: GraphBackedReceptorAdapter | None = None,
         receptor_references: Dict[str, List[Dict[str, str]]] | None = None,
+        atlas_service: AtlasOverlayService | None = None,
     ) -> None:
         if graph_service is not None:
             self.graph_service = graph_service
@@ -50,6 +55,10 @@ class ServiceRegistry:
             self.receptor_adapter = GraphBackedReceptorAdapter(self.graph_service)
         if receptor_references is not None:
             self.receptor_references = receptor_references
+        if atlas_service is not None:
+            self.atlas_service = atlas_service
+        elif getattr(self, "atlas_service", None) is None:
+            self.atlas_service = AtlasOverlayService(self.graph_service)
 
 
 services = ServiceRegistry()
@@ -61,6 +70,7 @@ def configure_services(
     simulation_engine: SimulationEngine | None = None,
     receptor_adapter: GraphBackedReceptorAdapter | None = None,
     receptor_references: Dict[str, List[Dict[str, str]]] | None = None,
+    atlas_service: AtlasOverlayService | None = None,
 ) -> None:
     """Configure the shared service registry used by API routes."""
 
@@ -69,6 +79,7 @@ def configure_services(
         simulation_engine=simulation_engine,
         receptor_adapter=receptor_adapter,
         receptor_references=receptor_references,
+        atlas_service=atlas_service,
     )
 
 
@@ -120,6 +131,21 @@ def expand_graph(
     nodes = [schemas.GraphNode.from_domain(node) for node in fragment.nodes]
     edges = [schemas.GraphEdge.from_domain(edge) for edge in fragment.edges]
     return schemas.GraphExpandResponse(centre=request.node_id, nodes=nodes, edges=edges)
+
+
+@router.get("/atlas/overlays/{node_id}", response_model=schemas.AtlasOverlayResponse)
+def atlas_overlay(node_id: str, svc: ServiceRegistry = Depends(get_services)) -> schemas.AtlasOverlayResponse:
+    service = svc.atlas_service or AtlasOverlayService(svc.graph_service)
+    try:
+        overlay = service.lookup(node_id)
+    except KeyError:
+        raise _http_error(
+            status.HTTP_404_NOT_FOUND,
+            "node_not_found",
+            f"Node '{node_id}' not found in atlas registries.",
+            context={"node_id": node_id},
+        )
+    return schemas.AtlasOverlayResponse.from_domain(overlay)
 
 
 def _fallback_weight(receptor: str) -> float:

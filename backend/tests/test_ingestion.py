@@ -16,6 +16,9 @@ class StubOpenAlexClient:
             "doi": "10.1000/example",
             "publication_year": 2024,
             "cited_by_count": 5,
+            "fulltext_tei": """
+                <TEI><text><body><p>Serotonin activates BDNF signalling in the prefrontal cortex.</p></body></text></TEI>
+            """,
             "authorships": [
                 {
                     "author": {"orcid": "0000-0002-1825-0097", "display_name": "Doe, J."},
@@ -75,6 +78,8 @@ def test_openalex_ingestion_creates_publication_and_author():
     # ensure DOI preserved in evidence annotations
     evidence_refs = [ev.reference for edge in edges for ev in edge.evidence if ev.reference]
     assert "10.1000/example" in evidence_refs
+    mined_edges = [edge for edge in edges if edge.predicate == BiolinkPredicate.AFFECTS and edge.subject.startswith("TXT:")]
+    assert mined_edges, "text-mining pipeline should add AFFECTS relation"
 
 
 def test_chembl_ingestion_interaction():
