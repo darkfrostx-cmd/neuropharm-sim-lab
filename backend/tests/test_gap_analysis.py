@@ -142,3 +142,5 @@ def test_gap_finder_persists_embeddings_in_vector_store() -> None:
     assert vector_store is not None
     if hasattr(vector_store, "_store"):
         assert vector_store._store.get("graph_nodes")  # type: ignore[attr-defined]
+    elif hasattr(vector_store, "path"):
+        assert vector_store.path.exists()  # type: ignore[attr-defined]

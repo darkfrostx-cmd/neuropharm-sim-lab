@@ -24,6 +24,7 @@ from typing import Dict, Mapping, Sequence
 
 import numpy as np
 import numpy.typing as npt
+from scipy.integrate import solve_ivp
 
 from ._integration import trapezoid_integral
 
@@ -133,11 +134,49 @@ def _simulate_with_pysb(
     return activity
 
 
+def _simulate_scipy(
+    params: MolecularCascadeParams,
+    receptor_effect: float,
+    time: npt.NDArray[np.float64],
+) -> Dict[str, npt.NDArray[np.float64]]:
+    if not params.downstream_nodes:
+        raise ValueError("at least one downstream node must be supplied")
+
+    nodes = list(params.downstream_nodes.keys())
+    initial = np.zeros(len(nodes), dtype=float)
+
+    def dynamics(_: float, state: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+        derivatives = np.zeros_like(state)
+        base_signal = max(receptor_effect, 1e-3)
+        for idx, node in enumerate(nodes):
+            activation = max(params.downstream_nodes[node], 1e-4)
+            decay = 0.05 + 0.1 * idx
+            derivatives[idx] = activation * base_signal - decay * state[idx]
+        return derivatives
+
+    solution = solve_ivp(
+        dynamics,
+        (float(time[0]), float(time[-1])),
+        initial,
+        t_eval=time,
+        vectorized=False,
+        max_step=float(np.min(np.diff(time)) if time.size > 1 else 1.0),
+    )
+    if not solution.success:
+        raise RuntimeError(f"SciPy cascade solver failed: {solution.message}")
+
+    activity: Dict[str, npt.NDArray[np.float64]] = {}
+    for idx, node in enumerate(nodes):
+        activity[node] = np.clip(solution.y[idx], 0.0, None).astype(float)
+    return activity
+
+
 def _simulate_analytic(
     params: MolecularCascadeParams,
     receptor_effect: float,
     time: npt.NDArray[np.float64],
 ) -> Dict[str, npt.NDArray[np.float64]]:
+    # Retained for deterministic unit tests when SciPy is unavailable.
     if not params.downstream_nodes:
         raise ValueError("at least one downstream node must be supplied")
     activity: Dict[str, npt.NDArray[np.float64]] = {}
@@ -171,9 +210,18 @@ def simulate_cascade(params: MolecularCascadeParams) -> MolecularCascadeResult:
             backend_label = "pysb"
         except Exception as exc:  # pragma: no cover - optional path
             LOGGER.debug("PySB cascade failed (%s); falling back to analytic backend", exc)
-            activity = _simulate_analytic(params, receptor_effect, time)
+            activity = _simulate_scipy(params, receptor_effect, time)
+            backend_label = "scipy"
+    elif backend in {"scipy", "high_fidelity"}:
+        activity = _simulate_scipy(params, receptor_effect, time)
+        backend_label = "scipy"
     else:
-        activity = _simulate_analytic(params, receptor_effect, time)
+        try:
+            activity = _simulate_scipy(params, receptor_effect, time)
+            backend_label = "scipy"
+        except Exception as exc:  # pragma: no cover - defensive path
+            LOGGER.debug("SciPy cascade fallback failed (%s); using analytic solution", exc)
+            activity = _simulate_analytic(params, receptor_effect, time)
 
     stacked = np.vstack(list(activity.values()))
     mean_activity = stacked.mean(axis=0)

@@ -1,0 +1,59 @@
+{
+  "serotonin": {
+    "id": "CHEBI:28790",
+    "label": "Serotonin",
+    "category": "biolink:ChemicalSubstance",
+    "synonyms": ["5-HT", "5 hydroxytryptamine", "5-hydroxytryptamine"],
+    "xrefs": ["HMDB:HMDB0000259", "PUBCHEM:5202"]
+  },
+  "dopamine": {
+    "id": "CHEBI:18243",
+    "label": "Dopamine",
+    "category": "biolink:ChemicalSubstance",
+    "synonyms": ["3,4-dihydroxyphenethylamine", "DA"],
+    "xrefs": ["HMDB:HMDB0000073", "PUBCHEM:681"]
+  },
+  "brain-derived neurotrophic factor": {
+    "id": "HGNC:1033",
+    "label": "BDNF",
+    "category": "biolink:Gene",
+    "synonyms": ["Brain-derived neurotrophic factor", "Bdnf"],
+    "xrefs": ["NCBIGene:627", "ENSEMBL:ENSG00000176697"]
+  },
+  "bdnf": {
+    "id": "HGNC:1033",
+    "label": "BDNF",
+    "category": "biolink:Gene",
+    "synonyms": ["Brain-derived neurotrophic factor"],
+    "xrefs": ["NCBIGene:627"]
+  },
+  "prefrontal cortex": {
+    "id": "UBERON:0001870",
+    "label": "Prefrontal cortex",
+    "category": "biolink:BrainRegion",
+    "synonyms": ["PFC", "prefrontal cortical area"],
+    "xrefs": ["MBA:1143"]
+  },
+  "gaba": {
+    "id": "CHEBI:16865",
+    "label": "gamma-Aminobutyric acid",
+    "category": "biolink:ChemicalSubstance",
+    "synonyms": ["GABA"],
+    "xrefs": ["PUBCHEM:119"]
+  },
+  "slc6a4": {
+    "id": "HGNC:11048",
+    "label": "SLC6A4",
+    "category": "biolink:Gene",
+    "synonyms": ["SERT", "Serotonin transporter"],
+    "xrefs": ["NCBIGene:6532"]
+  },
+  "htr2a": {
+    "id": "HGNC:5293",
+    "label": "HTR2A",
+    "category": "biolink:Gene",
+    "synonyms": ["5-HT2A receptor"],
+    "xrefs": ["NCBIGene:3356"]
+  }
+}
+

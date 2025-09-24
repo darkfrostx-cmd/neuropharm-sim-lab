@@ -78,8 +78,9 @@ def test_openalex_ingestion_creates_publication_and_author():
     # ensure DOI preserved in evidence annotations
     evidence_refs = [ev.reference for edge in edges for ev in edge.evidence if ev.reference]
     assert "10.1000/example" in evidence_refs
-    mined_edges = [edge for edge in edges if edge.predicate == BiolinkPredicate.AFFECTS and edge.subject.startswith("TXT:")]
+    mined_edges = [edge for edge in edges if edge.predicate == BiolinkPredicate.AFFECTS]
     assert mined_edges, "text-mining pipeline should add AFFECTS relation"
+    assert any(edge.subject.startswith("CHEBI:") for edge in mined_edges)
 
 
 def test_chembl_ingestion_interaction():

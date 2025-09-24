@@ -43,6 +43,7 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - optional dependency
     requests = None  # type: ignore[assignment]
 
+from .entity_grounding import GroundedEntity, GroundingResolver
 from .ingest_base import BaseIngestionJob
 from .models import BiolinkEntity, BiolinkPredicate, Edge, Node
 
@@ -174,6 +175,7 @@ class TextMiningPipeline:
         grobid_client: GrobidClient | None = None,
         relation_extractor: RelationExtractor | None = None,
         http_session: "requests.Session" | None = None,
+        grounder: GroundingResolver | None = None,
     ) -> None:
         self.config = config or TextMiningConfig()
         self._session = http_session or (requests.Session() if requests is not None else None)
@@ -185,6 +187,7 @@ class TextMiningPipeline:
                 LOGGER.debug("GROBID client unavailable: %s", exc)
                 self._grobid = None
         self._extractor = relation_extractor or SciSpaCyExtractor()
+        self._grounder = grounder or GroundingResolver()
 
     # ------------------------------------------------------------------
     # Public API
@@ -257,56 +260,89 @@ class TextMiningPipeline:
         edges: List[Edge] = []
         publication = record.get("doi") or record.get("id")
         for agent, verb, target, sentence in relations:
-            subject_id = f"TXT:{_slugify(agent)}"
-            object_id = f"TXT:{_slugify(target)}"
-            nodes.setdefault(
-                subject_id,
-                Node(
-                    id=subject_id,
-                    name=agent,
-                    category=BiolinkEntity.NAMED_THING,
-                    provided_by="TextMiningPipeline",
-                ),
-            )
-            nodes.setdefault(
-                object_id,
-                Node(
-                    id=object_id,
-                    name=target,
-                    category=BiolinkEntity.NAMED_THING,
-                    provided_by="TextMiningPipeline",
-                ),
-            )
-            predicate = self._predicate_from_verb(verb)
+            grounded_agent = self._ground(mention=agent)
+            grounded_target = self._ground(mention=target)
+
+            subject_id = grounded_agent.id
+            object_id = grounded_target.id
+            nodes.setdefault(subject_id, self._node_from_grounding(grounded_agent))
+            nodes.setdefault(object_id, self._node_from_grounding(grounded_target))
+
+            predicate, relation_label = self._predicate_from_verb(verb)
+            base_confidence = 0.6 if predicate == BiolinkPredicate.AFFECTS else 0.5
+            confidence = base_confidence * min(grounded_agent.confidence, grounded_target.confidence)
+            confidence = float(max(0.2, min(confidence, 0.95)))
+
+            qualifiers = {
+                "source_sentence": sentence,
+                "work_id": work_node.id,
+                "agent_grounding": grounded_agent.provenance,
+                "target_grounding": grounded_target.provenance,
+            }
             evidence_item = BaseIngestionJob.make_evidence(
                 "TextMiningPipeline",
                 str(publication) if publication else None,
-                0.55,
+                confidence,
                 sentence=sentence,
                 relation=verb,
+                agent_id=grounded_agent.id,
+                target_id=grounded_target.id,
             )
+            evidence_item.annotations["grounding_confidence"] = {
+                "agent": grounded_agent.confidence,
+                "target": grounded_target.confidence,
+            }
+
             edge = Edge(
                 subject=subject_id,
                 predicate=predicate,
                 object=object_id,
-                confidence=0.55 if predicate == BiolinkPredicate.AFFECTS else 0.45,
+                relation=relation_label,
+                confidence=confidence,
                 publications=[str(publication)] if publication else [],
-                qualifiers={
-                    "source_sentence": sentence,
-                    "work_id": work_node.id,
-                },
+                qualifiers=qualifiers,
                 evidence=[evidence_item],
             )
             edges.append(edge)
         return list(nodes.values()), edges
 
-    def _predicate_from_verb(self, verb: str) -> BiolinkPredicate:
+    def _predicate_from_verb(self, verb: str) -> Tuple[BiolinkPredicate, str]:
         verb_lower = verb.lower()
-        if verb_lower in {"activates", "enhances", "potentiates"}:
-            return BiolinkPredicate.AFFECTS
-        if verb_lower in {"inhibits", "suppresses", "attenuates"}:
-            return BiolinkPredicate.AFFECTS
-        return BiolinkPredicate.RELATED_TO
+        if verb_lower in {"activates", "enhances", "potentiates", "stimulates"}:
+            return BiolinkPredicate.AFFECTS, "biolink:positively_regulates"
+        if verb_lower in {"inhibits", "suppresses", "attenuates", "represses"}:
+            return BiolinkPredicate.AFFECTS, "biolink:negatively_regulates"
+        if verb_lower in {"modulates", "alters", "shifts"}:
+            return BiolinkPredicate.AFFECTS, "biolink:regulates"
+        return BiolinkPredicate.RELATED_TO, "biolink:related_to"
+
+    def _node_from_grounding(self, grounded: GroundedEntity) -> Node:
+        attributes: Dict[str, object] = {
+            "grounding_confidence": grounded.confidence,
+            "grounding_strategy": grounded.provenance.get("strategy") if grounded.provenance else None,
+        }
+        return Node(
+            id=grounded.id,
+            name=grounded.name,
+            category=grounded.category,
+            provided_by="TextMiningPipeline",
+            synonyms=list(grounded.synonyms),
+            xrefs=list(grounded.xrefs),
+            attributes={key: value for key, value in attributes.items() if value is not None},
+        )
+
+    def _ground(self, mention: str) -> GroundedEntity:
+        try:
+            return self._grounder.resolve(mention)
+        except Exception:  # pragma: no cover - defensive path
+            return GroundedEntity(
+                id=f"TXT:{_slugify(mention)}",
+                name=mention,
+                category=BiolinkEntity.NAMED_THING,
+                confidence=0.3,
+                synonyms=(mention,),
+                provenance={"strategy": "error_fallback"},
+            )
 
 __all__ = [
     "GrobidClient",

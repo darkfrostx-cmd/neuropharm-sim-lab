@@ -45,8 +45,8 @@ def test_engine_chronic_ssri_profile():
     assert result.scores["ApathyBlunting"] >= 0.0
     molecular_summary = result.module_summaries["molecular"]
     pkpd_summary = result.module_summaries["pkpd"]
-    assert molecular_summary["backend"] in {"analytic", "pysb"}
-    assert pkpd_summary["backend"] in {"analytic", "ospsuite"}
+    assert molecular_summary["backend"] in {"analytic", "pysb", "scipy"}
+    assert pkpd_summary["backend"] in {"analytic", "ospsuite", "scipy"}
     assert math.isfinite(molecular_summary["transient_peak"])
     assert math.isfinite(molecular_summary["steady_state"])
     assert math.isfinite(molecular_summary["activation_index"])
