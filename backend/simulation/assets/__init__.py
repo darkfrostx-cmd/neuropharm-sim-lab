@@ -49,14 +49,23 @@ def get_default_ospsuite_project_path() -> str:
         return str(Path(asset_path))
 
 
-def load_reference_pbpk_curves() -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64]]:
+def load_reference_pbpk_curves() -> Tuple[
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    Dict[str, npt.NDArray[np.float64]],
+]:
     """Load precomputed concentration curves for the reference PBPK model."""
 
     data = _read_json_asset("pbpk_reference_project.json")
     time = np.asarray(data.get("time", []), dtype=float)
     plasma = np.asarray(data.get("plasma_concentration", []), dtype=float)
     brain = np.asarray(data.get("brain_concentration", []), dtype=float)
-    return time, plasma, brain
+    region_data: Dict[str, npt.NDArray[np.float64]] = {}
+    for region, values in (data.get("region_brain_concentration", {}) or {}).items():
+        region_array = np.asarray(values, dtype=float)
+        region_data[str(region)] = region_array
+    return time, plasma, brain, region_data
 
 
 def load_reference_connectivity() -> Tuple[List[str], npt.NDArray[np.float64]]:

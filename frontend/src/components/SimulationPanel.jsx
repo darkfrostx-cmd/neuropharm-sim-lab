@@ -16,6 +16,8 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
   const [adhd, setAdhd] = useState(false)
   const [gutBias, setGutBias] = useState(false)
   const [pvtWeight, setPvtWeight] = useState(0.5)
+  const [trkB, setTrkB] = useState(true)
+  const [alpha2a, setAlpha2a] = useState(false)
 
   useEffect(() => {
     if (!effects?.length) {
@@ -40,6 +42,7 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
   const trajectories = simulation.data?.details?.trajectories ?? {}
   const receptorContext = simulation.data?.details?.receptor_context ?? {}
   const modules = simulation.data?.details?.modules ?? {}
+  const behaviouralTags = simulation.data?.behavioral_tags ?? {}
   const selectedTime = timepoints[timeIndex] ?? timepoints[timepoints.length - 1] ?? 0
 
   const moduleRows = useMemo(() => {
@@ -92,6 +95,10 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
       adhd,
       gut_bias: gutBias,
       pvt_weight: Number(pvtWeight),
+      assumptions: {
+        trkB_facilitation: Boolean(trkB),
+        alpha2a_hcn_closure: Boolean(alpha2a),
+      },
     })
   }
 
@@ -179,6 +186,14 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
             <input type="checkbox" checked={gutBias} onChange={(event) => setGutBias(event.target.checked)} />
             <span>Gut-brain bias</span>
           </label>
+          <label className="toggle">
+            <input type="checkbox" checked={trkB} onChange={(event) => setTrkB(event.target.checked)} />
+            <span>Enable TrkB plasticity</span>
+          </label>
+          <label className="toggle">
+            <input type="checkbox" checked={alpha2a} onChange={(event) => setAlpha2a(event.target.checked)} />
+            <span>α2A HCN closure</span>
+          </label>
           <label>
             Dosing regime
             <select value={dosing} onChange={(event) => setDosing(event.target.value)} data-testid="dosing-select">
@@ -224,7 +239,19 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
           <div className="scoreboard">
             {Object.entries(simulation.data.scores ?? {}).map(([metric, score]) => (
               <div key={metric} className="score-item">
-                <span className="metric">{metric}</span>
+                {(() => {
+                  const tag = behaviouralTags[metric]
+                  const displayLabel = tag?.label ?? metric
+                  const domainLabel = tag?.domain ?? tag?.rdoc?.label
+                  const codeLabel = tag?.rdoc?.id ?? tag?.cogatlas?.id
+                  return (
+                    <>
+                      <span className="metric">{displayLabel}</span>
+                      {domainLabel && <span className="metric-subtitle">{domainLabel}</span>}
+                      {codeLabel && <span className="metric-code">{codeLabel}</span>}
+                    </>
+                  )
+                })()}
                 <span className="value">{score.toFixed(2)}</span>
                 <UncertaintyBadge value={simulation.data.uncertainty?.[metric]} />
               </div>
@@ -268,6 +295,7 @@ SimulationPanel.propTypes = {
       scores: PropTypes.object,
       details: PropTypes.object,
       uncertainty: PropTypes.object,
+      behavioral_tags: PropTypes.object,
     }),
   }).isRequired,
   onSimulate: PropTypes.func.isRequired,

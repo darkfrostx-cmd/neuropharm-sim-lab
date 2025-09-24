@@ -38,6 +38,8 @@ def test_engine_chronic_ssri_profile():
     assert result.timepoints[-1] >= 168.0
     assert "DriveInvigoration" in result.scores
     assert "SocialAffiliation" in result.scores
+    assert result.behavioral_tags["DriveInvigoration"]["rdoc"]["id"] == "RDoC:POS_APPR"
+    assert result.behavioral_tags["SocialAffiliation"]["domain"] == "Social Processes"
     assert len(result.timepoints) == len(result.trajectories["plasma_concentration"])
     assert 0.0 <= result.confidence["DriveInvigoration"] <= 1.0
     assert result.scores["ApathyBlunting"] >= 0.0
@@ -50,6 +52,8 @@ def test_engine_chronic_ssri_profile():
     assert math.isfinite(molecular_summary["activation_index"])
     assert pkpd_summary["auc"] >= 0.0
     assert pkpd_summary["exposure_index"] >= 0.0
+    assert "region_brain_concentration" in pkpd_summary
+    assert "region_exposure_scalars" in result.module_summaries
 
 
 def test_affinity_expression_scaling_modulates_weights():

@@ -24,12 +24,13 @@ from .persistence import GraphStore
 class EmbeddingConfig:
     """Configuration for the lightweight embedding trainer."""
 
-    embedding_dim: int = 16
+    embedding_dim: int = 32
     learning_rate: float = 0.02
     epochs: int = 150
     negative_ratio: int = 2
     regularization: float = 1e-3
     seed: int = 13
+    margin: float = 6.0
 
 
 @dataclass(slots=True)
@@ -125,15 +126,21 @@ class EmbeddingGapFinder:
                     if best is None:
                         continue
                     predicate, raw_score = best
-                    context_weight, context_label = self._contextual_weight(subject, node_id, context)
+                    context_weight, context_label, context_uncertainty = self._contextual_weight(subject, node_id, context)
                     adjusted_score = raw_score * context_weight
-                    impact = self._impact_score(adjusted_score, degrees.get(subject, 0), degrees.get(node_id, 0))
+                    impact = self._impact_score(
+                        adjusted_score,
+                        degrees.get(subject, 0),
+                        degrees.get(node_id, 0),
+                        context_uncertainty,
+                    )
                     if node_id in focus_targets:
                         impact /= 1.5
                     metadata = {
                         "degree_sum": float(degrees.get(subject, 0) + degrees.get(node_id, 0)),
                         "context_weight": float(context_weight),
                         "raw_score": float(raw_score),
+                        "context_uncertainty": float(context_uncertainty),
                     }
                     default_reason = GapCandidate.__dataclass_fields__["reason"].default
                     reason = str(default_reason)
@@ -189,8 +196,10 @@ class EmbeddingGapFinder:
         unique_predicates = {edge.predicate for edge in edges}
         self._relation_index = {predicate: idx for idx, predicate in enumerate(sorted(unique_predicates, key=lambda p: p.value))}
         rng = np.random.default_rng(self.config.seed)
-        self._entity_embeddings = rng.normal(scale=0.1, size=(len(self._node_index), self.config.embedding_dim)).astype(np.float32)
-        self._relation_embeddings = rng.normal(scale=0.1, size=(len(self._relation_index), self.config.embedding_dim)).astype(np.float32)
+        entity_phases = rng.uniform(0.0, 2.0 * math.pi, size=(len(self._node_index), self.config.embedding_dim))
+        relation_phases = rng.uniform(0.0, 2.0 * math.pi, size=(len(self._relation_index), self.config.embedding_dim))
+        self._entity_embeddings = np.exp(1j * entity_phases).astype(np.complex64)
+        self._relation_embeddings = np.exp(1j * relation_phases).astype(np.complex64)
 
     def _train_model(self, edges: Sequence[Edge]) -> None:
         if self._entity_embeddings is None or self._relation_embeddings is None:
@@ -225,28 +234,30 @@ class EmbeddingGapFinder:
     def _apply_positive_update(self, subject_idx: int, predicate_idx: int, object_idx: int, lr: float, reg: float) -> None:
         assert self._entity_embeddings is not None and self._relation_embeddings is not None
         subject_vec = self._entity_embeddings[subject_idx]
-        predicate_vec = self._relation_embeddings[predicate_idx]
+        relation_vec = self._relation_embeddings[predicate_idx]
         object_vec = self._entity_embeddings[object_idx]
-        diff = subject_vec + predicate_vec - object_vec
-        subject_vec -= lr * diff
-        predicate_vec -= lr * diff
-        object_vec += lr * diff
-        self._entity_embeddings[subject_idx] = self._project(subject_vec, reg)
-        self._relation_embeddings[predicate_idx] = self._project(predicate_vec, reg)
-        self._entity_embeddings[object_idx] = self._project(object_vec, reg)
+        predicted = subject_vec * relation_vec
+        diff = predicted - object_vec
+        updated_subject = subject_vec - lr * diff * np.conjugate(relation_vec)
+        updated_relation = relation_vec - lr * diff * np.conjugate(subject_vec)
+        updated_object = object_vec + lr * diff
+        self._entity_embeddings[subject_idx] = self._normalize_entity(updated_subject, reg)
+        self._relation_embeddings[predicate_idx] = self._normalize_relation(updated_relation)
+        self._entity_embeddings[object_idx] = self._normalize_entity(updated_object, reg)
 
     def _apply_negative_update(self, subject_idx: int, predicate_idx: int, object_idx: int, lr: float, reg: float) -> None:
         assert self._entity_embeddings is not None and self._relation_embeddings is not None
         subject_vec = self._entity_embeddings[subject_idx]
-        predicate_vec = self._relation_embeddings[predicate_idx]
+        relation_vec = self._relation_embeddings[predicate_idx]
         object_vec = self._entity_embeddings[object_idx]
-        diff = subject_vec + predicate_vec - object_vec
-        subject_vec += lr * diff
-        predicate_vec += lr * diff
-        object_vec -= lr * diff
-        self._entity_embeddings[subject_idx] = self._project(subject_vec, reg)
-        self._relation_embeddings[predicate_idx] = self._project(predicate_vec, reg)
-        self._entity_embeddings[object_idx] = self._project(object_vec, reg)
+        predicted = subject_vec * relation_vec
+        diff = predicted - object_vec
+        updated_subject = subject_vec + lr * diff * np.conjugate(relation_vec)
+        updated_relation = relation_vec + lr * diff * np.conjugate(subject_vec)
+        updated_object = object_vec - lr * diff
+        self._entity_embeddings[subject_idx] = self._normalize_entity(updated_subject, reg)
+        self._relation_embeddings[predicate_idx] = self._normalize_relation(updated_relation)
+        self._entity_embeddings[object_idx] = self._normalize_entity(updated_object, reg)
 
     def _existing_pair(self, existing: set[Tuple[str, str, str]]) -> set[Tuple[str, str]]:
         return {(subject, obj) for subject, _, obj in existing}
@@ -274,13 +285,15 @@ class EmbeddingGapFinder:
         subject_vec = self._entity_embeddings[subject_idx]
         predicate_vec = self._relation_embeddings[predicate_idx]
         object_vec = self._entity_embeddings[object_idx]
-        distance = np.linalg.norm(subject_vec + predicate_vec - object_vec)
+        predicted = subject_vec * predicate_vec
+        distance = np.linalg.norm(predicted - object_vec)
         return float(-distance)
 
-    def _impact_score(self, embedding_score: float, subject_degree: int, object_degree: int) -> float:
+    def _impact_score(self, embedding_score: float, subject_degree: int, object_degree: int, uncertainty: float) -> float:
         degree_factor = math.log(2 + subject_degree + object_degree)
         magnitude = abs(embedding_score)
-        return magnitude * degree_factor
+        uncertainty_factor = 0.6 + 0.4 * float(max(0.0, min(1.0, uncertainty)))
+        return magnitude * degree_factor * uncertainty_factor
 
     @staticmethod
     def _compute_degrees(edges: Sequence[Edge]) -> Dict[str, int]:
@@ -290,17 +303,18 @@ class EmbeddingGapFinder:
             degrees[edge.object] = degrees.get(edge.object, 0) + 1
         return degrees
 
-    def _project(self, vector: np.ndarray, reg: float) -> np.ndarray:
-        """Apply L2 regularisation and norm clipping to keep embeddings stable."""
+    def _normalize_entity(self, vector: np.ndarray, reg: float) -> np.ndarray:
+        vector = vector * (1.0 - reg)
+        norms = np.abs(vector)
+        mask = norms > 1.0
+        if np.any(mask):
+            vector = vector.copy()
+            vector[mask] = vector[mask] / norms[mask]
+        return vector.astype(np.complex64)
 
-        vector = vector * (1 - reg)
-        norm = np.linalg.norm(vector)
-        if norm == 0:
-            return vector
-        max_norm = math.sqrt(self.config.embedding_dim)
-        if norm > max_norm:
-            vector = (vector / norm) * max_norm
-        return vector
+    def _normalize_relation(self, vector: np.ndarray) -> np.ndarray:
+        phases = np.angle(vector)
+        return np.exp(1j * phases).astype(np.complex64)
 
     # ------------------------------------------------------------------
     # Context helpers
@@ -367,13 +381,14 @@ class EmbeddingGapFinder:
         subject: str,
         object_: str,
         context: Mapping[str, Dict[str, object]],
-    ) -> Tuple[float, str]:
+    ) -> Tuple[float, str, float]:
         entries = [context.get(subject, {}), context.get(object_, {})]
         weight = 1.0
         labels: List[str] = []
+        confidences: List[float] = []
 
         def _apply(entry: Mapping[str, object]) -> None:
-            nonlocal weight, labels
+            nonlocal weight, labels, confidences
             species = entry.get("species", set())
             if isinstance(species, set):
                 species_lower = {str(item).lower() for item in species}
@@ -405,6 +420,7 @@ class EmbeddingGapFinder:
             confidence = entry.get("confidence", [])
             if isinstance(confidence, list) and confidence:
                 mean_conf = float(sum(confidence) / len(confidence))
+                confidences.extend(float(value) for value in confidence)
                 weight += 0.05 * (mean_conf - 0.5)
 
         for entry in entries:
@@ -413,7 +429,13 @@ class EmbeddingGapFinder:
 
         weight = float(max(0.6, min(1.6, weight)))
         description = ", ".join(dict.fromkeys(labels)) if labels else ""
-        return weight, description
+        if confidences:
+            clipped = [float(max(0.0, min(1.0, value))) for value in confidences]
+            mean_conf = float(sum(clipped) / len(clipped))
+        else:
+            mean_conf = 0.5
+        uncertainty = float(max(0.0, min(1.0, 1.0 - mean_conf)))
+        return weight, description, uncertainty
 
     @staticmethod
     def _normalize_to_set(value: object) -> set[str]:

@@ -130,6 +130,19 @@
   opacity: 0.65;
 }
 
+.score-item .metric-subtitle {
+  font-size: 0.7rem;
+  opacity: 0.55;
+  text-transform: none;
+}
+
+.score-item .metric-code {
+  font-size: 0.65rem;
+  font-family: 'IBM Plex Mono', monospace;
+  opacity: 0.5;
+  text-transform: none;
+}
+
 .score-item .value {
   font-size: 1.25rem;
   font-weight: 700;

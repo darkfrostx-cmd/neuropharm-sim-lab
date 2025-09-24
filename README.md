@@ -5,6 +5,10 @@ Vite/React analytics cockpit. The UI blends top-down atlas views (NiiVue), graph
 neighbourhood navigation (Cytoscape) and bottom-up force projections to surface
 receptor provenance, uncertainty and simulation outputs in one place.
 
+The evidence backbone ingests ChEMBL, BindingDB, IUPHAR and the PDSP Ki dataset
+out of the box, keeping ligand–receptor affinities and provenance cards close to
+the simulation layer.
+
 ## What lives where
 
 ```
@@ -92,7 +96,10 @@ Key features shipped by the React app:
 - **Evidence workbench:** provenance cards, uncertainty badges and explanation
   trails for `/predict/effects` and `/explain` responses.
 - **Simulation cockpit:** occupancy sliders, mechanism selectors, regimen
-  toggles and a time cursor wired to `/simulate` outputs.
+  toggles, chronic plasticity controls (TrkB facilitation, α2A HCN closure)
+  and a time cursor wired to `/simulate` outputs. Behavioural scores are now
+  annotated with RDoC and Cognitive Atlas identifiers so downstream analyses
+  can reuse standard vocabularies.
 
 ### 3. Tests and checks
 
