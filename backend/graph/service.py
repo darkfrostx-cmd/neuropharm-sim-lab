@@ -18,6 +18,7 @@ from .ingest_openalex import OpenAlexClient  # type: ignore
 from .models import Edge, Evidence, Node
 from .persistence import CompositeGraphStore, GraphFragment, GraphStore, InMemoryGraphStore
 from .vector_store import build_vector_store
+from .literature import LiteratureAggregator, LiteratureRecord
 
 
 @dataclass(slots=True)
@@ -40,6 +41,7 @@ class GraphService:
         gap_finder: EmbeddingGapFinder | None = None,
         causal_estimator: CausalEffectEstimator | None = None,
         literature_client: OpenAlexClient | None = None,
+        literature: LiteratureAggregator | None = None,
     ) -> None:
         self.config = config or DEFAULT_GRAPH_CONFIG
         self.vector_config = vector_config or DEFAULT_VECTOR_STORE_CONFIG
@@ -55,6 +57,7 @@ class GraphService:
             self._gap_finder = RotatEGapFinder(self.store, self._embedding_config, vector_store=self.vector_store)
         self._causal_estimator = causal_estimator or CausalEffectEstimator()
         self._literature_client = literature_client
+        self._literature = literature
         self._label_cache: Dict[str, str] = {}
 
     def _create_store(self, config: GraphConfig) -> GraphStore:
@@ -232,25 +235,30 @@ class GraphService:
         return treatments, outcomes, assumptions
 
     def _suggest_literature(self, subject: str, target: str, limit: int = 3) -> List[str]:
-        client = self._ensure_literature_client()
-        if client is None:
-            return []
-        query = f"{subject} {target}"
-        suggestions: List[str] = []
-        try:
-            for record in client.iter_works(search=query, per_page=limit):
-                title = record.get("display_name") or "Unknown work"
-                year = record.get("publication_year")
-                identifier = record.get("id") or record.get("ids", {}).get("openalex")
-                snippet = f"{title} ({year})" if year else title
-                if identifier:
-                    snippet = f"{snippet} [{identifier}]"
-                suggestions.append(snippet)
-                if len(suggestions) >= limit:
-                    break
-        except Exception:  # pragma: no cover - network errors
-            return []
-        return suggestions
+        aggregator = self._ensure_literature_aggregator()
+        if aggregator is None:
+            client = self._ensure_literature_client()
+            if client is None:
+                return []
+            suggestions: List[str] = []
+            query = f"{subject} {target}"
+            try:
+                for record in client.iter_works(search=query, per_page=limit):
+                    title = record.get("display_name") or "Unknown work"
+                    year = record.get("publication_year")
+                    identifier = record.get("id") or record.get("ids", {}).get("openalex")
+                    snippet = f"{title} ({year})" if year else title
+                    if identifier:
+                        snippet = f"{snippet} [{identifier}]"
+                    suggestions.append(snippet)
+                    if len(suggestions) >= limit:
+                        break
+            except Exception:  # pragma: no cover - network errors
+                return []
+            return suggestions
+
+        records = aggregator.suggest(subject, target, limit=limit)
+        return [self._format_literature_record(record) for record in records]
 
     def _ensure_label(self, node_id: str) -> None:
         if node_id in self._label_cache:
@@ -327,6 +335,25 @@ class GraphService:
         except Exception:  # pragma: no cover - optional dependency
             self._literature_client = None
         return self._literature_client
+
+    def _ensure_literature_aggregator(self) -> LiteratureAggregator | None:
+        if self._literature is not None:
+            return self._literature
+        if self._literature_client is not None:
+            return None
+        try:
+            self._literature = LiteratureAggregator()
+        except Exception:  # pragma: no cover - optional dependency
+            self._literature = None
+        return self._literature
+
+    def _format_literature_record(self, record: LiteratureRecord) -> str:
+        title = record.title or "Unknown work"
+        year = f" ({record.year})" if record.year else ""
+        identifier = f" [{record.identifier}]" if record.identifier else ""
+        url = f" <{record.url}>" if record.url else ""
+        source = f" via {record.source}"
+        return f"{title}{year}{identifier}{source}{url}"
 
 
 __all__ = ["GraphService", "EvidenceSummary"]
