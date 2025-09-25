@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -60,8 +60,10 @@ class CausalSummary:
 class CausalEffectEstimator:
     """Estimate treatment effects using DoWhy when available."""
 
-    def __init__(self, minimum_samples: int = 2) -> None:
+    def __init__(self, minimum_samples: int = 2, bootstrap_iterations: int = 200, random_seed: int | None = 13) -> None:
         self.minimum_samples = minimum_samples
+        self.bootstrap_iterations = bootstrap_iterations
+        self.random_seed = random_seed
 
     def estimate_effect(
         self,
@@ -153,6 +155,15 @@ class CausalEffectEstimator:
                 "instruments": list(assumptions.get("instruments", [])),
             }
         counterfactuals = self._compute_counterfactuals(treatment, outcome)
+        bootstrap_stats = self._bootstrap_interval(treatment, outcome)
+        if bootstrap_stats is not None:
+            ci_low, ci_high, stability = bootstrap_stats
+            diagnostics["bootstrap_ci"] = (ci_low, ci_high)
+            diagnostics["bootstrap_stability"] = stability
+            if ci_low > 0 or ci_high < 0:
+                confidence = float(max(confidence, min(0.99, 0.7 + stability * 0.25)))
+            else:
+                confidence = float(max(confidence, min(0.95, 0.6 + stability * 0.2)))
         description = self._build_description(
             method="Difference-in-means",
             effect=effect,
@@ -162,6 +173,7 @@ class CausalEffectEstimator:
             confidence=confidence,
             n_treated=int(treated_outcomes.size),
             n_control=int(control_outcomes.size),
+            confidence_interval=diagnostics.get("bootstrap_ci"),
             extra_note="Counterfactuals available." if counterfactuals else None,
         )
         return CausalSummary(
@@ -223,6 +235,7 @@ class CausalEffectEstimator:
             confidence=confidence,
             n_treated=base_summary.n_treated,
             n_control=base_summary.n_control,
+            confidence_interval=base_summary.diagnostics.get("bootstrap_ci"),
             extra_note="Refutation available." if base_summary.counterfactuals else None,
         )
         diagnostics = dict(base_summary.diagnostics)
@@ -324,6 +337,7 @@ class CausalEffectEstimator:
             confidence=base_summary.confidence,
             n_treated=base_summary.n_treated,
             n_control=base_summary.n_control,
+            confidence_interval=base_summary.diagnostics.get("bootstrap_ci"),
             extra_note="Counterfactuals enhanced via EconML.",
         )
 
@@ -381,15 +395,44 @@ class CausalEffectEstimator:
         confidence: float,
         n_treated: int,
         n_control: int,
+        confidence_interval: Tuple[float, float] | None = None,
         extra_note: str | None = None,
     ) -> str:
         description = (
             f"{method} suggests a {direction} of {effect:.3f} in {outcome_name} when manipulating {treatment_name} "
             f"(confidence {confidence:.2f}, n_treated={n_treated}, n_control={n_control})."
         )
+        if confidence_interval is not None:
+            description = (
+                f"{description} Bootstrap 95% CI [{confidence_interval[0]:.3f}, {confidence_interval[1]:.3f}]."
+            )
         if extra_note:
             description = f"{description} {extra_note}"
         return description
+
+    def _bootstrap_interval(self, treatment: np.ndarray, outcome: np.ndarray) -> Tuple[float, float, float] | None:
+        if self.bootstrap_iterations <= 0 or treatment.size != outcome.size:
+            return None
+        if treatment.size < self.minimum_samples * 2:
+            return None
+        rng = np.random.default_rng(self.random_seed)
+        diffs: List[float] = []
+        for _ in range(self.bootstrap_iterations):
+            sample_idx = rng.integers(0, treatment.size, size=treatment.size)
+            sampled_treatment = treatment[sample_idx]
+            sampled_outcome = outcome[sample_idx]
+            treated_mask = sampled_treatment > np.median(sampled_treatment)
+            control_mask = ~treated_mask
+            if treated_mask.sum() < self.minimum_samples or control_mask.sum() < self.minimum_samples:
+                continue
+            diff = float(sampled_outcome[treated_mask].mean() - sampled_outcome[control_mask].mean())
+            diffs.append(diff)
+        if len(diffs) < max(10, self.bootstrap_iterations // 10):
+            return None
+        low = float(np.percentile(diffs, 2.5))
+        high = float(np.percentile(diffs, 97.5))
+        stability = float(1.0 / (1.0 + float(np.std(diffs))))
+        return low, high, stability
 
 
 __all__ = ["CausalEffectEstimator", "CausalSummary", "CounterfactualScenario"]

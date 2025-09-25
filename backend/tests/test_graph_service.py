@@ -8,6 +8,7 @@ from backend.graph.models import (
 from backend.graph.gaps import GapReport
 from backend.graph.persistence import InMemoryGraphStore
 from backend.graph.service import GraphService
+from backend.graph.literature import LiteratureRecord
 
 
 def build_store() -> InMemoryGraphStore:
@@ -57,4 +58,27 @@ def test_find_gaps_between_focus_nodes() -> None:
     assert isinstance(gaps, list)
     assert all(isinstance(gap, GapReport) for gap in gaps)
     assert any(gap.subject == "CHEMBL:25" and gap.object == "HGNC:6" for gap in gaps)
+
+
+def test_literature_suggestions_use_aggregator() -> None:
+    class _StubAggregator:
+        def suggest(self, subject: str, target: str, *, limit: int = 5):  # type: ignore[override]
+            return [
+                LiteratureRecord(
+                    title="Sertraline and SLC6A4 modulation",
+                    identifier="PMID:12345",
+                    year=2022,
+                    source="Semantic Scholar",
+                    score=42,
+                    url="https://example.org/pmid12345",
+                    snippet="Detailed analysis",
+                )
+            ]
+
+    store = build_store()
+    service = GraphService(store=store, literature=_StubAggregator())
+    suggestions = service._suggest_literature("CHEMBL:25", "HGNC:6", limit=1)
+    assert suggestions == [
+        "Sertraline and SLC6A4 modulation (2022) [PMID:12345] via Semantic Scholar <https://example.org/pmid12345>"
+    ]
 

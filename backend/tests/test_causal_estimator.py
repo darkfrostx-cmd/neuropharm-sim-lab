@@ -29,6 +29,8 @@ def test_difference_in_means_counterfactuals(monkeypatch: pytest.MonkeyPatch) ->
     assert summary.assumption_graph is not None
     assert len(summary.counterfactuals) >= 1
     assert summary.counterfactuals[0].label in {"observed", "p10"}
+    assert "bootstrap_ci" in summary.diagnostics
+    assert "Bootstrap 95% CI" in summary.description
 
 
 @pytest.mark.skipif(causal_module.CausalModel is None, reason="DoWhy not installed")
