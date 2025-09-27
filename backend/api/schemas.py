@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, Dict, Iterable, Mapping, Sequence, Literal
 
 from pydantic import BaseModel, Field
@@ -250,6 +251,10 @@ class AtlasVolume(BaseModel):
         )
 
 
+class AtlasOverlayRequest(BaseModel):
+    node_id: str = Field(..., description="Node identifier used to retrieve atlas overlays")
+
+
 class AtlasOverlayResponse(BaseModel):
     node_id: str
     provider: str
@@ -412,7 +417,56 @@ class GapResponse(BaseModel):
     items: Sequence[GapDescriptor]
 
 
+class AssistantAction(str, Enum):
+    """Canonical verbs recognised by the assistant aggregation endpoint."""
+
+    EVIDENCE_SEARCH = "evidence_search"
+    GRAPH_EXPAND = "graph_expand"
+    ATLAS_OVERLAY = "atlas_overlay"
+    PREDICT_EFFECTS = "predict_effects"
+    SIMULATE = "simulate"
+    EXPLAIN = "explain"
+    FIND_GAPS = "find_gaps"
+
+
+class AssistantRequest(BaseModel):
+    """Envelope used by clients (e.g. custom GPTs) to call API workflows."""
+
+    action: AssistantAction = Field(..., description="Name of the workflow to execute")
+    payload: Dict[str, Any] = Field(default_factory=dict, description="Action-specific parameters")
+
+
+class AssistantResponse(BaseModel):
+    """Unified response returned by the assistant executor endpoint."""
+
+    action: AssistantAction
+    source_endpoint: str = Field(..., description="Underlying REST endpoint that executed the workflow")
+    description: str = Field(..., description="Short human-readable summary of the workflow")
+    normalized_payload: Dict[str, Any] = Field(default_factory=dict)
+    result: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AssistantCapability(BaseModel):
+    """Declarative description of an assistant workflow."""
+
+    action: AssistantAction
+    description: str
+    endpoint: str
+    payload_schema: Dict[str, Any]
+
+
+class AssistantCapabilitiesResponse(BaseModel):
+    """List of workflows exposed by the assistant endpoints."""
+
+    actions: Sequence[AssistantCapability]
+
+
 __all__ = [
+    "AssistantAction",
+    "AssistantCapabilitiesResponse",
+    "AssistantCapability",
+    "AssistantRequest",
+    "AssistantResponse",
     "Citation",
     "CounterfactualEstimate",
     "CausalDiagnostics",
@@ -433,6 +487,7 @@ __all__ = [
     "GraphExpandRequest",
     "GraphExpandResponse",
     "GraphNode",
+    "AtlasOverlayRequest",
     "PredictEffectsRequest",
     "PredictEffectsResponse",
     "ReceptorEffect",
