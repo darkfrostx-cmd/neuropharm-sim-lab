@@ -43,6 +43,34 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000
 The base requirements now ship with the Neo4j (5.x) and python-arango clients so
 managed Aura and Oasis endpoints work without extra installs.
 
+#### Programmatic assistant gateway
+
+Custom GPTs and other agent-style clients can call the API through a single
+entrypoint without hand-coding each workflow. Two new endpoints surface the
+available actions and execute them on behalf of the caller:
+
+```text
+GET  /assistant/capabilities   # Lists supported actions + JSON Schemas
+POST /assistant/execute        # Dispatches an action with a validated payload
+```
+
+For example, predicting receptor evidence reduces to:
+
+```bash
+curl -X POST http://localhost:8000/assistant/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+        "action": "predict_effects",
+        "payload": {"receptors": [{"name": "5HT1A"}]}
+      }'
+```
+
+The response bundles the underlying REST endpoint, a normalised payload and the
+result body so agent frameworks can reason over inputs and outputs with minimal
+custom code. This gateway works transparently behind the provided Cloudflare
+Worker proxy and can be deployed to a FastAPI-ready Hugging Face Space by
+pointing `app = backend.main.app` inside your Space entry script.
+
 The optional simulation toolkits (PySB, OSPSuite, TVB) pull heavy native wheels.
 Install them only when you need the full PK/PD stack:
 

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Set, Tuple, Type
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.encoders import jsonable_encoder
+from pydantic import BaseModel, ValidationError
 
 from ..engine.receptors import RECEPTORS, canonical_receptor_name, get_receptor_weights
 from ..atlas import AtlasOverlayService
@@ -62,6 +64,16 @@ class ServiceRegistry:
 
 
 services = ServiceRegistry()
+
+
+@dataclass(frozen=True)
+class AssistantActionConfig:
+    """Metadata describing how assistant actions map to core endpoints."""
+
+    request_model: Type[BaseModel]
+    endpoint: str
+    description: str
+    handler: Callable[[BaseModel, ServiceRegistry], BaseModel]
 
 
 def configure_services(
@@ -425,6 +437,104 @@ def find_graph_gaps(
             )
         )
     return schemas.GapResponse(items=items)
+
+
+def _atlas_overlay_handler(
+    payload: schemas.AtlasOverlayRequest,
+    svc: ServiceRegistry,
+) -> schemas.AtlasOverlayResponse:
+    return atlas_overlay(node_id=payload.node_id, svc=svc)
+
+
+ASSISTANT_ACTIONS: Dict[schemas.AssistantAction, AssistantActionConfig] = {
+    schemas.AssistantAction.EVIDENCE_SEARCH: AssistantActionConfig(
+        request_model=schemas.EvidenceSearchRequest,
+        endpoint="/evidence/search",
+        description="Search for evidence supporting a subject/predicate/object triple.",
+        handler=search_evidence,
+    ),
+    schemas.AssistantAction.GRAPH_EXPAND: AssistantActionConfig(
+        request_model=schemas.GraphExpandRequest,
+        endpoint="/graph/expand",
+        description="Expand the knowledge graph neighbourhood around a node.",
+        handler=expand_graph,
+    ),
+    schemas.AssistantAction.ATLAS_OVERLAY: AssistantActionConfig(
+        request_model=schemas.AtlasOverlayRequest,
+        endpoint="/atlas/overlays/{node_id}",
+        description="Retrieve atlas overlays aligned to an anatomical node.",
+        handler=_atlas_overlay_handler,
+    ),
+    schemas.AssistantAction.PREDICT_EFFECTS: AssistantActionConfig(
+        request_model=schemas.PredictEffectsRequest,
+        endpoint="/predict/effects",
+        description="Derive receptor effects by combining graph evidence and fallbacks.",
+        handler=predict_receptor_effects,
+    ),
+    schemas.AssistantAction.SIMULATE: AssistantActionConfig(
+        request_model=schemas.SimulationRequest,
+        endpoint="/simulate",
+        description="Run the pharmacology simulator with the supplied receptor occupancies.",
+        handler=run_simulation,
+    ),
+    schemas.AssistantAction.EXPLAIN: AssistantActionConfig(
+        request_model=schemas.ExplainRequest,
+        endpoint="/explain",
+        description="Explain a receptor's evidence trail by surfacing graph provenance.",
+        handler=explain_receptor,
+    ),
+    schemas.AssistantAction.FIND_GAPS: AssistantActionConfig(
+        request_model=schemas.GapRequest,
+        endpoint="/gaps",
+        description="Highlight missing edges and counterfactuals between focus nodes.",
+        handler=find_graph_gaps,
+    ),
+}
+
+
+@router.get("/assistant/capabilities", response_model=schemas.AssistantCapabilitiesResponse)
+def assistant_capabilities() -> schemas.AssistantCapabilitiesResponse:
+    """Expose the action catalogue so GPT-style agents can self-discover workflows."""
+
+    actions = [
+        schemas.AssistantCapability(
+            action=action,
+            description=config.description,
+            endpoint=config.endpoint,
+            payload_schema=config.request_model.model_json_schema(),
+        )
+        for action, config in ASSISTANT_ACTIONS.items()
+    ]
+    return schemas.AssistantCapabilitiesResponse(actions=actions)
+
+
+@router.post("/assistant/execute", response_model=schemas.AssistantResponse)
+def assistant_execute(
+    request: schemas.AssistantRequest,
+    svc: ServiceRegistry = Depends(get_services),
+) -> schemas.AssistantResponse:
+    """Dispatch assistant actions to the underlying REST endpoints."""
+
+    config = ASSISTANT_ACTIONS[request.action]
+    try:
+        payload_model = config.request_model.model_validate(request.payload)
+    except ValidationError as exc:
+        raise _http_error(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "invalid_payload",
+            f"Payload validation failed for action '{request.action.value}'.",
+            context={"errors": exc.errors()},
+        ) from exc
+    result_model = config.handler(payload_model, svc)
+    normalized_payload = jsonable_encoder(payload_model, by_alias=True)
+    result_payload = jsonable_encoder(result_model, by_alias=True)
+    return schemas.AssistantResponse(
+        action=request.action,
+        source_endpoint=config.endpoint,
+        description=config.description,
+        normalized_payload=normalized_payload,
+        result=result_payload,
+    )
 
 
 __all__ = ["router", "configure_services"]
