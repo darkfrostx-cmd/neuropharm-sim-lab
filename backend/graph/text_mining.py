@@ -119,25 +119,111 @@ class SciSpaCyExtractor(RelationExtractor):
         flags=re.IGNORECASE,
     )
 
-    def __init__(self) -> None:
-        try:  # pragma: no cover - optional dependency
-            import spacy
-            from scispacy.abbreviation import AbbreviationDetector
+    _VERB_NORMALISATIONS = {
+        "activates": "activate",
+        "enhances": "enhance",
+        "suppresses": "suppress",
+    }
 
-            self._nlp = spacy.load("en_core_sci_sm")  # type: ignore[assignment]
-            self._nlp.add_pipe("sentencizer", first=True)
-            self._nlp.add_pipe(AbbreviationDetector(self._nlp))
-        except Exception:  # pragma: no cover - optional dependency
-            self._nlp = None  # type: ignore[assignment]
+    def __init__(self, *, nlp=None, matcher=None) -> None:  # type: ignore[no-untyped-def]
+        self._nlp = nlp
+        self._matcher = matcher
+        if self._nlp is None:
+            try:  # pragma: no cover - optional dependency
+                import spacy
+                from scispacy.abbreviation import AbbreviationDetector
+
+                self._nlp = spacy.load("en_core_sci_sm")  # type: ignore[assignment]
+                if hasattr(self._nlp, "has_pipe") and not self._nlp.has_pipe("sentencizer"):
+                    self._nlp.add_pipe("sentencizer", first=True)
+                if hasattr(self._nlp, "add_pipe"):
+                    try:
+                        self._nlp.add_pipe(AbbreviationDetector(self._nlp))
+                    except Exception:
+                        LOGGER.debug("Failed to add scispaCy abbreviation detector", exc_info=True)
+            except Exception:  # pragma: no cover - optional dependency
+                self._nlp = None  # type: ignore[assignment]
+
+        if self._nlp is not None and self._matcher is None:
+            try:  # pragma: no cover - optional dependency
+                from spacy.matcher import DependencyMatcher
+
+                self._matcher = DependencyMatcher(self._nlp.vocab)  # type: ignore[arg-type]
+                pattern = [
+                    {"RIGHT_ID": "verb", "RIGHT_ATTRS": {"POS": {"IN": ["VERB", "AUX"]}}},
+                    {"LEFT_ID": "verb", "REL_OP": ">", "RIGHT_ID": "subject", "RIGHT_ATTRS": {"DEP": {"IN": ["nsubj", "nsubjpass"]}}},
+                    {
+                        "LEFT_ID": "verb",
+                        "REL_OP": ">",
+                        "RIGHT_ID": "object",
+                        "RIGHT_ATTRS": {"DEP": {"IN": ["dobj", "pobj", "attr", "obl", "dative"]}},
+                    },
+                ]
+                self._matcher.add("AGENT_VERB_TARGET", [pattern])
+            except Exception:  # pragma: no cover - optional dependency
+                LOGGER.debug("DependencyMatcher unavailable; falling back to regex extraction", exc_info=True)
+                self._matcher = None
 
     def _regex_extract(self, text: str) -> List[RelationTuple]:
         relations: List[RelationTuple] = []
         for match in self._PATTERN.finditer(text):
             agent = match.group("agent")
             verb = match.group("verb").lower()
+            verb = self._VERB_NORMALISATIONS.get(verb, verb)
             target = match.group("target")
             sentence = match.group(0)
             relations.append((agent, verb, target, sentence))
+        return relations
+
+    def _expand_phrase(self, token) -> str:  # type: ignore[no-untyped-def]
+        left = getattr(token, "left_edge", token)
+        right = getattr(token, "right_edge", token)
+        doc = getattr(token, "doc", None)
+        if doc is None:
+            return token.text  # pragma: no cover - defensive
+        start = getattr(left, "i", getattr(token, "i", 0))
+        end = getattr(right, "i", getattr(token, "i", start))
+        words: List[str] = []
+        for index in range(start, end + 1):
+            try:
+                words.append(doc[index].text)
+            except Exception:  # pragma: no cover - defensive
+                break
+        phrase = " ".join(words).strip()
+        return phrase or token.text
+
+    def _scispacy_extract(self, doc) -> List[RelationTuple]:  # type: ignore[no-untyped-def]
+        if self._matcher is None:
+            return []
+        relations: List[RelationTuple] = []
+        seen: set[Tuple[str, str, str, str]] = set()
+        for sentence in getattr(doc, "sents", []):
+            sent_text = sentence.text.strip()
+            if not sent_text:
+                continue
+            try:
+                sent_doc = sentence.as_doc()
+            except Exception:  # pragma: no cover - defensive
+                sent_doc = doc
+            try:
+                matches = self._matcher(sent_doc)
+            except Exception:  # pragma: no cover - defensive
+                matches = []
+            for _, token_ids in matches:
+                if len(token_ids) < 3:
+                    continue
+                verb = sent_doc[token_ids[0]]
+                subject = sent_doc[token_ids[1]]
+                obj = sent_doc[token_ids[2]]
+                agent_text = self._expand_phrase(subject)
+                target_text = self._expand_phrase(obj)
+                verb_text = (verb.lemma_ or verb.text).lower()
+                verb_text = self._VERB_NORMALISATIONS.get(verb_text, verb_text)
+                key = (agent_text, verb_text, target_text, sent_text)
+                if key in seen:
+                    continue
+                seen.add(key)
+                relations.append((agent_text, verb_text, target_text, sent_text))
         return relations
 
     def extract(self, text: str) -> List[RelationTuple]:
@@ -147,13 +233,16 @@ class SciSpaCyExtractor(RelationExtractor):
             return self._regex_extract(text)
 
         doc = self._nlp(text)
-        relations: List[RelationTuple] = []
-        for sentence in doc.sents:
+        relations = self._scispacy_extract(doc)
+        if relations:
+            return relations
+        for sentence in getattr(doc, "sents", []):
             sent_text = sentence.text.strip()
             if not sent_text:
                 continue
-            matches = self._regex_extract(sent_text)
-            relations.extend(matches)
+            relations.extend(self._regex_extract(sent_text))
+        if not relations:
+            relations = self._regex_extract(text)
         return relations
 
 
@@ -308,11 +397,14 @@ class TextMiningPipeline:
 
     def _predicate_from_verb(self, verb: str) -> Tuple[BiolinkPredicate, str]:
         verb_lower = verb.lower()
-        if verb_lower in {"activates", "enhances", "potentiates", "stimulates"}:
+        positive = {"activate", "activates", "enhance", "enhances", "potentiate", "potentiates", "stimulate", "stimulates"}
+        negative = {"inhibit", "inhibits", "suppress", "suppresses", "attenuate", "attenuates", "repress", "represses"}
+        neutral = {"modulate", "modulates", "alter", "alters", "shift", "shifts"}
+        if verb_lower in positive:
             return BiolinkPredicate.AFFECTS, "biolink:positively_regulates"
-        if verb_lower in {"inhibits", "suppresses", "attenuates", "represses"}:
+        if verb_lower in negative:
             return BiolinkPredicate.AFFECTS, "biolink:negatively_regulates"
-        if verb_lower in {"modulates", "alters", "shifts"}:
+        if verb_lower in neutral:
             return BiolinkPredicate.AFFECTS, "biolink:regulates"
         return BiolinkPredicate.RELATED_TO, "biolink:related_to"
 
