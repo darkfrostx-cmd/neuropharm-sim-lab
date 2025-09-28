@@ -1,0 +1,4 @@
+mcp>=1.15.0
+mcp-cli>=0.7.5
+httpx>=0.28.1
+python-dotenv>=1.0.1
