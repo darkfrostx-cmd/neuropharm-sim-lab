@@ -1,10 +1,10 @@
 # Dockerfile
 FROM python:3.10-slim
 
-# system libs needed for SciPy/NumPy/TVB/PySB builds & wheels
+# system libs for SciPy/NumPy/TVB/PySB (no ATLAS on Debian trixie)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gfortran cmake pkg-config git \
-    libopenblas-dev liblapack-dev libatlas-base-dev \
+    libopenblas-dev liblapack-dev \
     libgsl-dev libffi-dev libssl-dev libhdf5-dev \
   && rm -rf /var/lib/apt/lists/*
 
