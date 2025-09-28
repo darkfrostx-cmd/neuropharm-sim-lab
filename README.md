@@ -180,7 +180,7 @@ Point the ingestion orchestrator at a running GROBID container by exporting
 ### Graph connectivity environment variables
 
 Configure the graph driver through environment variables before deploying to
-Render, Cloudflare Workers or any other hosted stack:
+Render, Cloudflare Workers or any other hosted stack. If you want a spoon-fed walkthrough for Render, Hugging Face Spaces, and the Cloudflare Worker, follow [`docs/deployment-guide.md`](docs/deployment-guide.md).
 
 ```bash
 GRAPH_BACKEND=neo4j
