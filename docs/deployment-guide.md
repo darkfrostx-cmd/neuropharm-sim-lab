@@ -103,3 +103,14 @@ For each execution action, send a JSON body shaped like:
 ```
 
 The backend validates the payload, executes the workflow, and returns structured JSON containing the normalised input plus the result data—no manual parsing required.
+
+---
+
+## Optional: orchestrate everything from the MCP CLI
+
+If you prefer a command-line control plane, the repository now includes an MCP
+bridge that forwards requests from [`mcp-cli`](https://github.com/chrishayuk/mcp-cli)
+to your Render service, Cloudflare Worker, or Hugging Face Space. Follow the
+step-by-step instructions in `docs/mcp-cli.md` to install the CLI, export your
+deployment URLs, and launch an interactive session that can trigger any of the
+assistant workflows without leaving the terminal.【F:docs/mcp-cli.md†L1-L92】

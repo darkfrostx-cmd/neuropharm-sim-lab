@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "neuropharm-render": {
+      "command": "python",
+      "args": ["-m", "infra.mcp.render_bridge"],
+      "env": {
+        "NEUROPHARM_RENDER_URL": "https://<your-render-service>.onrender.com",
+        "NEUROPHARM_WORKER_URL": "https://<your-worker-subdomain>.workers.dev",
+        "NEUROPHARM_HF_URL": "https://<your-space>.hf.space",
+        "NEUROPHARM_DEFAULT_TARGET": "worker"
+      }
+    }
+  },
+  "toolSettings": {
+    "defaultTimeout": 180.0,
+    "maxConcurrency": 4
+  }
+}
