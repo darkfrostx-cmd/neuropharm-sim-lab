@@ -296,7 +296,8 @@ class GraphService:
             return f'"{escaped}"'
 
         def node_definition(node_id: str, *, latent: bool) -> str:
-            attrs = [f"label=\"{self._label_for_node(node_id).replace('\"', '\\\"')}\""]
+            label = self._label_for_node(node_id).replace("\"", "\\\"")
+            attrs = [f'label="{label}"']
             if latent:
                 attrs.append("latent=\"yes\"")
             return f"  {quote(node_id)} [{', '.join(attrs)}];"
