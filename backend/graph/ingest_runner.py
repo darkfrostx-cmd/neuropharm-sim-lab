@@ -15,6 +15,7 @@ from .ingest_chembl import BindingDBIngestion, ChEMBLIngestion, IUPHARIngestion
 from .ingest_pdsp import PDSPKiIngestion
 from .ingest_indra import IndraIngestion
 from .ingest_openalex import OpenAlexIngestion
+from .ingest_semantic_scholar import SemanticScholarIngestion
 from .models import BiolinkEntity, BiolinkPredicate, Edge, Evidence, Node
 from .persistence import GraphStore, InMemoryGraphStore
 from .service import GraphService
@@ -43,6 +44,7 @@ def _default_jobs() -> List[BaseIngestionJob]:
         AllenAtlasIngestion,
         EBrainsAtlasIngestion,
         OpenAlexIngestion,
+        SemanticScholarIngestion,
     ):
         try:
             jobs.append(job_cls())

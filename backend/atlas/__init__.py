@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, Iterable, List, Optional, Set
 
 from ..graph.ingest_atlases import AllenAtlasClient, EBrainsAtlasClient
 from ..graph.models import Node
@@ -13,6 +13,142 @@ from ..graph.service import GraphService
 ALLEN_ANNOTATION_URL = (
     "https://download.alleninstitute.org/informatics-archive/current-release/mouse_ccf/annotation/ccf_2017/annotation_10.nrrd"
 )
+
+
+def _make_keys(*aliases: str) -> Set[str]:
+    return {alias.lower() for alias in aliases if alias}
+
+
+_CURATED_LIBRARY: List[Dict[str, object]] = [
+    {
+        "provider": "Harvard-Oxford",
+        "keys": _make_keys("UBERON:0002421", "hippocampus", "hippocampal formation"),
+        "coordinates": [
+            {"reference_space_id": 997, "x_mm": -23.8, "y_mm": -18.6, "z_mm": -15.4},
+            {"reference_space_id": 997, "x_mm": 23.4, "y_mm": -18.3, "z_mm": -15.2},
+        ],
+        "volumes": [
+            {
+                "name": "Harvard-Oxford hippocampus mask",
+                "url": "https://neurovault.org/media/images/2624/hippocampus_mask.nii.gz",
+                "format": "nii.gz",
+                "metadata": {"space": "MNI152", "type": "mask"},
+            }
+        ],
+    },
+    {
+        "provider": "Harvard-Oxford",
+        "keys": _make_keys("UBERON:0001950", "medial prefrontal cortex", "mPFC", "prefrontal medial"),
+        "coordinates": [
+            {"reference_space_id": 997, "x_mm": -6.0, "y_mm": 46.5, "z_mm": -2.5},
+            {"reference_space_id": 997, "x_mm": 6.2, "y_mm": 46.3, "z_mm": -2.1},
+        ],
+        "volumes": [
+            {
+                "name": "Harvard-Oxford frontal medial cortex",
+                "url": "https://neurovault.org/media/images/2624/frontal_medial.nii.gz",
+                "format": "nii.gz",
+                "metadata": {"space": "MNI152", "type": "mask"},
+            }
+        ],
+    },
+    {
+        "provider": "NeuroVault",
+        "keys": _make_keys("UBERON:0001881", "ventral tegmental area", "VTA"),
+        "coordinates": [
+            {"reference_space_id": 997, "x_mm": -4.5, "y_mm": -13.8, "z_mm": -10.5},
+            {"reference_space_id": 997, "x_mm": 4.2, "y_mm": -13.6, "z_mm": -10.2},
+        ],
+        "volumes": [
+            {
+                "name": "Probabilistic VTA mask",
+                "url": "https://neurovault.org/media/images/4337/prob_vta.nii.gz",
+                "format": "nii.gz",
+                "metadata": {"space": "MNI152", "type": "probability"},
+            }
+        ],
+    },
+    {
+        "provider": "NeuroVault",
+        "keys": _make_keys("UBERON:0006102", "nucleus accumbens", "ventral striatum", "NAc"),
+        "coordinates": [
+            {"reference_space_id": 997, "x_mm": -10.2, "y_mm": 10.4, "z_mm": -7.8},
+            {"reference_space_id": 997, "x_mm": 10.5, "y_mm": 10.1, "z_mm": -7.6},
+        ],
+        "volumes": [
+            {
+                "name": "Oxford-GSK-Imanova striatum atlas",
+                "url": "https://neurovault.org/media/images/2445/oxford_gsk_imanova_striatum_mask.nii.gz",
+                "format": "nii.gz",
+                "metadata": {"space": "MNI152", "type": "mask"},
+            }
+        ],
+    },
+    {
+        "provider": "Harvard-Oxford",
+        "keys": _make_keys("UBERON:0001882", "amygdala"),
+        "coordinates": [
+            {"reference_space_id": 997, "x_mm": -22.6, "y_mm": -4.5, "z_mm": -15.8},
+            {"reference_space_id": 997, "x_mm": 22.9, "y_mm": -4.3, "z_mm": -15.6},
+        ],
+        "volumes": [
+            {
+                "name": "Harvard-Oxford amygdala mask",
+                "url": "https://neurovault.org/media/images/2624/amygdala_mask.nii.gz",
+                "format": "nii.gz",
+                "metadata": {"space": "MNI152", "type": "mask"},
+            }
+        ],
+    },
+    {
+        "provider": "Harvard-Oxford",
+        "keys": _make_keys("UBERON:0001870", "insula", "insular cortex"),
+        "coordinates": [
+            {"reference_space_id": 997, "x_mm": -34.5, "y_mm": 14.6, "z_mm": 2.2},
+            {"reference_space_id": 997, "x_mm": 34.7, "y_mm": 14.5, "z_mm": 2.5},
+        ],
+        "volumes": [
+            {
+                "name": "Harvard-Oxford insular cortex mask",
+                "url": "https://neurovault.org/media/images/2624/insula_mask.nii.gz",
+                "format": "nii.gz",
+                "metadata": {"space": "MNI152", "type": "mask"},
+            }
+        ],
+    },
+    {
+        "provider": "Allen+NeuroMorph",
+        "keys": _make_keys("UBERON:0001898", "locus coeruleus"),
+        "coordinates": [
+            {"reference_space_id": 997, "x_mm": -1.8, "y_mm": -34.5, "z_mm": -18.2},
+            {"reference_space_id": 997, "x_mm": 1.7, "y_mm": -34.6, "z_mm": -18.0},
+        ],
+        "volumes": [
+            {
+                "name": "LC probabilistic atlas",
+                "url": "https://neurovault.org/media/images/3915/lc_probabilistic.nii.gz",
+                "format": "nii.gz",
+                "metadata": {"space": "MNI152", "type": "probability"},
+            }
+        ],
+    },
+    {
+        "provider": "EBRAINS",
+        "keys": _make_keys("UBERON:0002303", "anterior cingulate cortex", "ACC"),
+        "coordinates": [
+            {"reference_space_id": 997, "x_mm": -5.0, "y_mm": 39.0, "z_mm": 20.5},
+            {"reference_space_id": 997, "x_mm": 5.3, "y_mm": 38.7, "z_mm": 20.2},
+        ],
+        "volumes": [
+            {
+                "name": "EBRAINS ACC surface",
+                "url": "https://ebrains.eu/repository/atlas/acc_surface.gltf",
+                "format": "gltf",
+                "metadata": {"type": "surface", "space": "ICBM152"},
+            }
+        ],
+    },
+]
 
 
 @dataclass(slots=True)
@@ -66,6 +202,9 @@ class AtlasOverlayService:
         if node is None:
             raise KeyError(node_id)
         provider = (node.provided_by or "").lower()
+        curated = self._curated_overlay(node)
+        if curated is not None:
+            return curated
         if "allen" in provider or node.id.isdigit():
             return self._allen_overlay(node)
         if "ebrains" in provider or node.id.startswith("http"):
@@ -149,6 +288,49 @@ class AtlasOverlayService:
                 )
             )
         return AtlasOverlay(node_id=node.id, provider=node.provided_by or "EBRAINS", coordinates=coordinates, volumes=volumes)
+
+    def _curated_overlay(self, node: Node) -> AtlasOverlay | None:
+        lookup_keys: Set[str] = {node.id.lower(), (node.name or "").lower()}
+        attributes = node.attributes if isinstance(node.attributes, dict) else {}
+        synonyms = attributes.get("synonyms") if isinstance(attributes, dict) else None
+        if isinstance(synonyms, Iterable) and not isinstance(synonyms, (str, bytes)):
+            lookup_keys.update(str(value).lower() for value in synonyms if isinstance(value, str))
+        if isinstance(attributes, dict):
+            for key in ("uberon_id", "atlas_id", "curie"):
+                raw = attributes.get(key)
+                if isinstance(raw, str):
+                    lookup_keys.add(raw.lower())
+        lookup_keys = {key for key in lookup_keys if key}
+        for entry in _CURATED_LIBRARY:
+            keys: Set[str] = entry["keys"]  # type: ignore[assignment]
+            if lookup_keys & keys:
+                coordinates = [
+                    AtlasCoordinate(
+                        reference_space=coord.get("reference_space_id"),
+                        x_mm=coord.get("x_mm"),
+                        y_mm=coord.get("y_mm"),
+                        z_mm=coord.get("z_mm"),
+                        source="curated",
+                    )
+                    for coord in entry["coordinates"]  # type: ignore[index]
+                ]
+                volumes = [
+                    AtlasVolume(
+                        name=volume["name"],
+                        url=volume["url"],
+                        format=volume["format"],
+                        description=volume.get("description"),
+                        metadata=volume.get("metadata", {}),
+                    )
+                    for volume in entry["volumes"]  # type: ignore[index]
+                ]
+                return AtlasOverlay(
+                    node_id=node.id,
+                    provider=str(entry.get("provider", "curated")),
+                    coordinates=coordinates,
+                    volumes=volumes,
+                )
+        return None
 
     @staticmethod
     def _micron_to_mm(value: object) -> Optional[float]:
