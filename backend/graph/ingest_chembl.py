@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Iterator
+from typing import Iterable, Iterator, Mapping
 
 try:  # pragma: no cover - optional dependency for live fetches
     import requests
 except ImportError:  # pragma: no cover
     requests = None  # type: ignore
 
+from .evidence_quality import (
+    normalise_chronicity_label,
+    normalise_design_label,
+    normalise_species_label,
+)
 from .ingest_base import BaseIngestionJob
 from .models import BiolinkEntity, BiolinkPredicate, Edge, Node
 
@@ -92,6 +97,11 @@ class ChEMBLIngestion(BaseIngestionJob):
             provided_by=self.source,
         )
         nodes.extend([compound_node, target_node])
+        metadata = self._extract_metadata(record)
+        evidence_payload = {
+            "relation": record.get("standard_relation", "="),
+            **{key: value for key, value in metadata.items() if value},
+        }
         edges.append(
             Edge(
                 subject=compound_node.id,
@@ -103,12 +113,46 @@ class ChEMBLIngestion(BaseIngestionJob):
                         self.source,
                         record.get("document_chembl_id"),
                         float(record.get("pchembl_value")) if record.get("pchembl_value") else None,
-                        relation=record.get("standard_relation", "="),
+                        **evidence_payload,
                     )
                 ],
             )
         )
         return nodes, edges
+
+    @staticmethod
+    def _extract_metadata(record: Mapping[str, object]) -> dict[str, str | None]:
+        species_raw = (
+            record.get("target_organism")
+            or record.get("assay_organism")
+            or record.get("organism")
+            or record.get("assay_cell_type")
+        )
+        species = normalise_species_label(str(species_raw)) if species_raw else None
+
+        description = " ".join(
+            str(value)
+            for value in (
+                record.get("assay_description"),
+                record.get("comment"),
+                record.get("relationship_description"),
+            )
+            if value
+        )
+        chronicity = normalise_chronicity_label(str(record.get("assay_test_type"))) if record.get("assay_test_type") else None
+        if not chronicity and description:
+            chronicity = normalise_chronicity_label(description)
+
+        design_candidate = (
+            record.get("assay_type")
+            or record.get("assay_format")
+            or record.get("data_validity_comment")
+        )
+        design = normalise_design_label(str(design_candidate)) if design_candidate else None
+        if not design and description:
+            design = normalise_design_label(description)
+
+        return {"species": species, "chronicity": chronicity, "design": design}
 
 
 class IUPHARIngestion(BaseIngestionJob):
@@ -172,6 +216,15 @@ class BindingDBIngestion(BaseIngestionJob):
         pmid = record.get("PMID")
         if pmid and not str(pmid).upper().startswith("PMID:"):
             pmid = f"PMID:{pmid}"
+        metadata = {
+            "species": self._infer_species(record),
+            "chronicity": "acute",
+            "design": "in_vitro",
+        }
+        evidence_payload = {
+            "measure": str(record.get("Ki")),
+            **{key: value for key, value in metadata.items() if value},
+        }
         edges.append(
             Edge(
                 subject=ligand_node.id,
@@ -182,12 +235,20 @@ class BindingDBIngestion(BaseIngestionJob):
                         self.source,
                         pmid,
                         None,
-                        measure=str(record.get("Ki")),
+                        **evidence_payload,
                     )
                 ],
             )
         )
         return nodes, edges
+
+    @staticmethod
+    def _infer_species(record: Mapping[str, object]) -> str | None:
+        for key in ("TargetSpecies", "Species", "Organism"):
+            value = record.get(key)
+            if value:
+                return normalise_species_label(str(value))
+        return None
 
 
 __all__ = [

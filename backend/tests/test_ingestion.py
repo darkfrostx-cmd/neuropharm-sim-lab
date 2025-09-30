@@ -41,6 +41,9 @@ class StubChEMBLClient:
             "document_chembl_id": "CHEMBL_DOC",
             "pchembl_value": "7.5",
             "standard_relation": "=",
+            "target_organism": "Homo sapiens",
+            "assay_type": "Binding",
+            "assay_description": "Acute binding assay in human cortical tissue",
         }
 
 
@@ -52,6 +55,7 @@ class StubBindingDBClient:
             "TargetName": "SLC6A4",
             "PMID": "12345",
             "Ki": 5.2,
+            "TargetSpecies": "Rattus norvegicus",
         }
 
 
@@ -63,7 +67,15 @@ class StubIndraClient:
             "subject": {"name": "HTR2A", "db_refs": {"HGNC": "HGNC:5293"}},
             "object": {"name": "GNAQ", "db_refs": {"HGNC": "HGNC:4381"}},
             "evidence": [
-                {"pmid": "55555", "annotations": {"belief": 0.73}},
+                {
+                    "pmid": "55555",
+                    "annotations": {
+                        "belief": 0.73,
+                        "species": "mouse",
+                        "timecourse": "chronic",
+                        "experiment_type": "in vivo",
+                    },
+                },
             ],
         }
 
@@ -90,7 +102,10 @@ def test_chembl_ingestion_interaction():
     edges = store.get_edge_evidence()
     interaction_edges = [edge for edge in edges if edge.predicate == BiolinkPredicate.INTERACTS_WITH]
     assert interaction_edges
-    assert interaction_edges[0].evidence[0].annotations["relation"] == "="
+    evidence = interaction_edges[0].evidence[0]
+    assert evidence.annotations["relation"] == "="
+    assert evidence.annotations["species"] == "human"
+    assert evidence.annotations["design"] == "in_vitro"
 
 
 def test_bindingdb_ingestion_interaction():
@@ -99,7 +114,10 @@ def test_bindingdb_ingestion_interaction():
     ingestion.run(store)
     edges = store.get_edge_evidence(predicate=BiolinkPredicate.INTERACTS_WITH.value)
     assert edges
-    assert edges[0].evidence[0].reference == "PMID:12345"
+    evidence = edges[0].evidence[0]
+    assert evidence.reference == "PMID:12345"
+    assert evidence.annotations["species"] == "rat"
+    assert evidence.annotations["design"] == "in_vitro"
 
 
 def test_indra_ingestion_affects_relation():
@@ -111,3 +129,6 @@ def test_indra_ingestion_affects_relation():
     edge = edges[0]
     assert edge.confidence == 0.73
     assert edge.publications == ["PMID:55555"]
+    assert edge.evidence[0].annotations["species"] == "mouse"
+    assert edge.evidence[0].annotations["chronicity"] == "chronic"
+    assert edge.evidence[0].annotations["design"] == "in_vivo"

@@ -7,7 +7,9 @@ receptor provenance, uncertainty and simulation outputs in one place.
 
 The evidence backbone ingests ChEMBL, BindingDB, IUPHAR and the PDSP Ki dataset
 out of the box, keeping ligand–receptor affinities and provenance cards close to
-the simulation layer.
+the simulation layer. Each ingestion job now normalises study metadata (species,
+chronicity, and design) so the new evidence quality scorer can surface
+human/animal splits and regimen context alongside the raw measurements.
 
 ## What lives where
 
@@ -117,6 +119,20 @@ npm install
 echo "VITE_API_BASE_URL=http://localhost:8000" > .env.local
 npm run dev -- --host 0.0.0.0 --port 5173
 ```
+
+### Evidence quality heuristics
+
+`backend/graph/evidence_quality.py` converts per-study annotations into weighted
+confidence metrics. Species, chronicity, study design and provenance signals are
+combined into a `total_score` that:
+
+- bumps human and chronic data above acute or non-human findings,
+- distinguishes in vivo/clinical designs from in vitro or in silico assays, and
+- rewards cited studies (PMID/DOI) over uncited snippets.
+
+The resulting metrics drive both the simulation adapter and the `/evidence/search`
+endpoint, where the API now returns `quality` summaries alongside each edge’s
+provenance list.
 
 Key features shipped by the React app:
 

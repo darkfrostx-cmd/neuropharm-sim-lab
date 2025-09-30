@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Iterable, Iterator
+from typing import Iterable, Iterator, Mapping
 
 try:  # pragma: no cover - optional dependency for live fetches
     import requests
 except ImportError:  # pragma: no cover
     requests = None  # type: ignore
 
+from .evidence_quality import (
+    normalise_chronicity_label,
+    normalise_design_label,
+    normalise_species_label,
+)
 from .ingest_base import BaseIngestionJob
 from .models import BiolinkEntity, BiolinkPredicate, Edge, Node
 
@@ -72,12 +77,14 @@ class IndraIngestion(BaseIngestionJob):
                 publications.append(pub)
             belief_str = ev.get("annotations", {}).get("belief") if ev.get("annotations") else None
             confidence = float(belief_str) if belief_str else None
+            metadata = self._extract_metadata(ev)
             edge_evidence.append(
                 self.make_evidence(
                     self.source,
                     pub,
                     confidence,
                     statement=record.get("type"),
+                    **{key: value for key, value in metadata.items() if value},
                 )
             )
         edges.append(
@@ -91,6 +98,41 @@ class IndraIngestion(BaseIngestionJob):
             )
         )
         return nodes, edges
+
+    @staticmethod
+    def _extract_metadata(evidence: Mapping[str, object]) -> dict[str, str | None]:
+        annotations = evidence.get("annotations") if isinstance(evidence.get("annotations"), Mapping) else {}
+        context = evidence.get("context") if isinstance(evidence.get("context"), Mapping) else {}
+
+        species_candidate = None
+        for key in ("species", "subject_species", "object_species"):
+            value = annotations.get(key) if isinstance(annotations, Mapping) else None
+            if value:
+                species_candidate = value
+                break
+        if not species_candidate:
+            species_candidate = context.get("species") if isinstance(context, Mapping) else None
+        species = normalise_species_label(str(species_candidate)) if species_candidate else None
+
+        chronicity_candidate = None
+        for key in ("chronicity", "timecourse", "treatment"):
+            value = annotations.get(key) if isinstance(annotations, Mapping) else None
+            if value:
+                chronicity_candidate = value
+                break
+        chronicity = normalise_chronicity_label(str(chronicity_candidate)) if chronicity_candidate else None
+
+        design_candidate = None
+        for key in ("design", "experiment_type", "assay", "evidence_type"):
+            value = annotations.get(key) if isinstance(annotations, Mapping) else None
+            if value:
+                design_candidate = value
+                break
+        if not design_candidate and isinstance(context, Mapping):
+            design_candidate = context.get("setting")
+        design = normalise_design_label(str(design_candidate)) if design_candidate else None
+
+        return {"species": species, "chronicity": chronicity, "design": design}
 
 
 __all__ = ["IndraClient", "IndraIngestion"]

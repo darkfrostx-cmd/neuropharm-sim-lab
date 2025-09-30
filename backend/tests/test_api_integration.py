@@ -26,6 +26,10 @@ async def test_evidence_search_returns_results(serotonin_graph, client):
     assert data["total"] >= 1
     assert data["items"][0]["edge"]["object"] == "HGNC:HTR1A"
     assert data["items"][0]["provenance"][0]["source"] == "ChEMBL"
+    quality = data["items"][0]["quality"]
+    assert "score" in quality and quality["score"] is not None
+    assert quality["species_distribution"]
+    assert data["items"][0]["provenance"][0]["quality"]["total_score"] >= 0.0
 
 
 async def test_evidence_search_rejects_unknown_predicate(client):

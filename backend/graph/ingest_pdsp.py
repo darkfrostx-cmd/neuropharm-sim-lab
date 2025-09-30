@@ -120,7 +120,16 @@ class PDSPKiIngestion(BaseIngestionJob):
             attributes={"uniprot": record.uniprot} if record.uniprot else {},
         )
         nodes.extend([ligand_node, target_node])
-        annotations = {"assay": "binding", "unit": "nM"}
+        metadata = {
+            "species": self._infer_species(record),
+            "chronicity": "acute",
+            "design": "in_vitro",
+        }
+        annotations = {
+            "assay": "binding",
+            "unit": "nM",
+            **{key: value for key, value in metadata.items() if value},
+        }
         if record.ki_nm is not None:
             confidence = float(max(0.05, min(0.99, 1.0 / (1.0 + record.ki_nm / 10.0))))
             annotations["ki"] = record.ki_nm
@@ -143,6 +152,24 @@ class PDSPKiIngestion(BaseIngestionJob):
             )
         )
         return nodes, edges
+
+    @staticmethod
+    def _infer_species(record: PDSPRecord) -> str | None:
+        target = (record.target or "").lower()
+        if "human" in target:
+            return "human"
+        if "rat" in target:
+            return "rat"
+        if "mouse" in target or "murine" in target:
+            return "mouse"
+        uniprot = (record.uniprot or "").upper()
+        if uniprot.endswith("_HUMAN"):
+            return "human"
+        if uniprot.endswith("_RAT"):
+            return "rat"
+        if uniprot.endswith("_MOUSE"):
+            return "mouse"
+        return None
 
 
 __all__ = ["PDSPKiIngestion", "PDSPKiClient", "PDSPRecord"]
