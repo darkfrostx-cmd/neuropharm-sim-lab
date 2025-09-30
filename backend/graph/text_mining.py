@@ -31,7 +31,7 @@ assembly; the project only relies on the small public ``mine`` API.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import io
 import logging
 import re
@@ -51,7 +51,33 @@ from .models import BiolinkEntity, BiolinkPredicate, Edge, Node
 LOGGER = logging.getLogger(__name__)
 
 
-RelationTuple = Tuple[str, str, str, str]
+
+@dataclass(frozen=True)
+class ExtractedRelation:
+    """Representation of an extracted and grounded relation."""
+
+    agent: GroundedEntity
+    target: GroundedEntity
+    verb: str
+    sentence: str
+    method: str
+    agent_mention: str
+    target_mention: str
+    metadata: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class AssemblyFrame:
+    """INDRA/BEL-inspired causal frame created during assembly."""
+
+    frame_id: str
+    namespace: str
+    relation_type: str
+    polarity: str
+    agent: GroundedEntity
+    target: GroundedEntity
+    evidence_text: str
+    annotations: Mapping[str, object] = field(default_factory=dict)
 
 
 def _slugify(value: str) -> str:
@@ -107,12 +133,12 @@ class GrobidClient:
 class RelationExtractor:
     """Base class for relation extractors operating on TEI text."""
 
-    def extract(self, text: str) -> List[RelationTuple]:  # pragma: no cover - interface
+    def extract(self, text: str) -> List[ExtractedRelation]:  # pragma: no cover - interface
         raise NotImplementedError
 
 
 class SciSpaCyExtractor(RelationExtractor):
-    """scispaCy-backed relation extractor with a regex fallback."""
+    """scispaCy-backed relation extractor with dependency and linking support."""
 
     _PATTERN = re.compile(
         r"(?P<agent>[A-Z][A-Za-z0-9-]{2,})\s+(?P<verb>activates|inhibits|modulates|suppresses|enhances)\s+(?P<target>[A-Z][A-Za-z0-9-]{2,})",
@@ -125,10 +151,21 @@ class SciSpaCyExtractor(RelationExtractor):
         "suppresses": "suppress",
     }
 
-    def __init__(self, *, nlp=None, matcher=None) -> None:  # type: ignore[no-untyped-def]
+    def __init__(
+        self,
+        *,
+        nlp=None,
+        matcher=None,
+        linker=None,
+        grounder: GroundingResolver | None = None,
+        auto_load: bool = True,
+    ) -> None:  # type: ignore[no-untyped-def]
+        self._auto_load = auto_load
         self._nlp = nlp
         self._matcher = matcher
-        if self._nlp is None:
+        self._linker = linker
+        self._grounder = grounder or GroundingResolver()
+        if self._nlp is None and self._auto_load:
             try:  # pragma: no cover - optional dependency
                 import spacy
                 from scispacy.abbreviation import AbbreviationDetector
@@ -164,38 +201,140 @@ class SciSpaCyExtractor(RelationExtractor):
                 LOGGER.debug("DependencyMatcher unavailable; falling back to regex extraction", exc_info=True)
                 self._matcher = None
 
-    def _regex_extract(self, text: str) -> List[RelationTuple]:
-        relations: List[RelationTuple] = []
+        if self._nlp is not None and self._linker is None and self._auto_load:
+            try:  # pragma: no cover - optional dependency
+                if hasattr(self._nlp, "has_pipe") and self._nlp.has_pipe("scispacy_linker"):
+                    self._linker = self._nlp.get_pipe("scispacy_linker")
+                else:
+                    self._nlp.add_pipe("scispacy_linker", config={"resolve_abbreviations": True})
+                    self._linker = self._nlp.get_pipe("scispacy_linker")
+            except Exception:  # pragma: no cover - optional dependency
+                LOGGER.debug("Entity linker unavailable; continuing without KB provenance", exc_info=True)
+                self._linker = None
+
+    def _regex_extract(self, text: str) -> List[ExtractedRelation]:
+        relations: List[ExtractedRelation] = []
         for match in self._PATTERN.finditer(text):
             agent = match.group("agent")
             verb = match.group("verb").lower()
-            verb = self._VERB_NORMALISATIONS.get(verb, verb)
+            verb_norm = self._VERB_NORMALISATIONS.get(verb, verb)
             target = match.group("target")
-            sentence = match.group(0)
-            relations.append((agent, verb, target, sentence))
+            sentence = match.group(0).strip()
+            grounded_agent = self._ground(agent, method="regex_fallback")
+            grounded_target = self._ground(target, method="regex_fallback")
+            relations.append(
+                ExtractedRelation(
+                    agent=grounded_agent,
+                    target=grounded_target,
+                    verb=verb_norm,
+                    sentence=sentence,
+                    method="regex_fallback",
+                    agent_mention=agent,
+                    target_mention=target,
+                    metadata={"pattern": "simple_verb_pattern"},
+                )
+            )
         return relations
 
-    def _expand_phrase(self, token) -> str:  # type: ignore[no-untyped-def]
+    def _expand_phrase(self, token):  # type: ignore[no-untyped-def]
+        doc = getattr(token, "doc", None)
         left = getattr(token, "left_edge", token)
         right = getattr(token, "right_edge", token)
-        doc = getattr(token, "doc", None)
-        if doc is None:
-            return token.text  # pragma: no cover - defensive
         start = getattr(left, "i", getattr(token, "i", 0))
         end = getattr(right, "i", getattr(token, "i", start))
         words: List[str] = []
-        for index in range(start, end + 1):
-            try:
-                words.append(doc[index].text)
-            except Exception:  # pragma: no cover - defensive
-                break
+        if doc is not None:
+            for index in range(start, end + 1):
+                try:
+                    words.append(doc[index].text)
+                except Exception:  # pragma: no cover - defensive
+                    break
         phrase = " ".join(words).strip()
-        return phrase or token.text
+        return phrase or token.text, start, end, doc
 
-    def _scispacy_extract(self, doc) -> List[RelationTuple]:  # type: ignore[no-untyped-def]
+    def _link_span(self, span) -> Tuple[str | None, Dict[str, object]]:  # type: ignore[no-untyped-def]
+        canonical: str | None = None
+        metadata: Dict[str, object] = {}
+        if span is None:
+            return canonical, metadata
+        extension = getattr(span, "_", None)
+        candidates: Iterable[Tuple[str, float]] | None = None
+        if extension is not None and hasattr(extension, "kb_ents"):
+            try:
+                kb_entries = list(extension.kb_ents)
+            except Exception:  # pragma: no cover - defensive
+                kb_entries = []
+            if kb_entries:
+                limited = kb_entries[:5]
+                metadata["kb_ents"] = [(str(kb_id), float(score)) for kb_id, score in limited]
+                candidates = limited
+        if candidates and self._linker is not None:
+            try:
+                best_id = candidates[0][0]
+                entity = self._linker.kb.cui_to_entity.get(best_id)
+                if entity is not None:
+                    canonical = entity.canonical_name
+                    metadata["canonical_name"] = canonical
+                    metadata["linker_name"] = getattr(self._linker, "name", "scispacy_linker")
+            except Exception:  # pragma: no cover - defensive
+                LOGGER.debug("Failed to resolve linker candidate", exc_info=True)
+        return canonical, metadata
+
+    def _ground(
+        self,
+        mention: str,
+        *,
+        method: str,
+        surface: str | None = None,
+        extra: Mapping[str, object] | None = None,
+    ) -> GroundedEntity:
+        surface_mention = surface or mention
+        metadata: Dict[str, object] = {
+            "surface_mention": surface_mention,
+            "normalised_mention": mention,
+            "extraction_method": method,
+        }
+        if extra:
+            metadata.update(dict(extra))
+        try:
+            resolved = self._grounder.resolve(mention)
+        except Exception:  # pragma: no cover - defensive fallback
+            return GroundedEntity(
+                id=f"TXT:{_slugify(surface_mention)}",
+                name=surface_mention,
+                category=BiolinkEntity.NAMED_THING,
+                confidence=0.3,
+                synonyms=(surface_mention,),
+                provenance={**metadata, "strategy": "extractor_fallback"},
+            )
+
+        provenance = dict(resolved.provenance or {})
+        provenance.update(metadata)
+        synonyms = tuple(resolved.synonyms)
+        if surface_mention and surface_mention not in synonyms:
+            synonyms = synonyms + (surface_mention,)
+        return GroundedEntity(
+            id=resolved.id,
+            name=resolved.name,
+            category=resolved.category,
+            confidence=resolved.confidence,
+            synonyms=synonyms,
+            xrefs=resolved.xrefs,
+            provenance=provenance,
+        )
+
+    def _make_span(self, doc, start: int, end: int):  # type: ignore[no-untyped-def]
+        if doc is None:
+            return None
+        try:
+            return doc[start : end + 1]
+        except Exception:  # pragma: no cover - defensive
+            return None
+
+    def _scispacy_extract(self, doc) -> List[ExtractedRelation]:  # type: ignore[no-untyped-def]
         if self._matcher is None:
             return []
-        relations: List[RelationTuple] = []
+        relations: List[ExtractedRelation] = []
         seen: set[Tuple[str, str, str, str]] = set()
         for sentence in getattr(doc, "sents", []):
             sent_text = sentence.text.strip()
@@ -215,18 +354,54 @@ class SciSpaCyExtractor(RelationExtractor):
                 verb = sent_doc[token_ids[0]]
                 subject = sent_doc[token_ids[1]]
                 obj = sent_doc[token_ids[2]]
-                agent_text = self._expand_phrase(subject)
-                target_text = self._expand_phrase(obj)
+                agent_text, agent_start, agent_end, agent_doc = self._expand_phrase(subject)
+                target_text, target_start, target_end, target_doc = self._expand_phrase(obj)
+                agent_span = self._make_span(agent_doc, agent_start, agent_end)
+                target_span = self._make_span(target_doc, target_start, target_end)
+                canonical_agent, agent_meta = self._link_span(agent_span)
+                canonical_target, target_meta = self._link_span(target_span)
                 verb_text = (verb.lemma_ or verb.text).lower()
                 verb_text = self._VERB_NORMALISATIONS.get(verb_text, verb_text)
                 key = (agent_text, verb_text, target_text, sent_text)
                 if key in seen:
                     continue
                 seen.add(key)
-                relations.append((agent_text, verb_text, target_text, sent_text))
+                agent_grounded = self._ground(
+                    canonical_agent or agent_text,
+                    method="dependency_matcher",
+                    surface=agent_text,
+                    extra={"linking": agent_meta} if agent_meta else agent_meta,
+                )
+                target_grounded = self._ground(
+                    canonical_target or target_text,
+                    method="dependency_matcher",
+                    surface=target_text,
+                    extra={"linking": target_meta} if target_meta else target_meta,
+                )
+                metadata = {
+                    "pattern": "dependency_matcher",
+                    "agent_indices": (agent_start, agent_end),
+                    "target_indices": (target_start, target_end),
+                }
+                if agent_meta:
+                    metadata["agent_linking"] = agent_meta
+                if target_meta:
+                    metadata["target_linking"] = target_meta
+                relations.append(
+                    ExtractedRelation(
+                        agent=agent_grounded,
+                        target=target_grounded,
+                        verb=verb_text,
+                        sentence=sent_text,
+                        method="dependency_matcher",
+                        agent_mention=agent_text,
+                        target_mention=target_text,
+                        metadata=metadata,
+                    )
+                )
         return relations
 
-    def extract(self, text: str) -> List[RelationTuple]:
+    def extract(self, text: str) -> List[ExtractedRelation]:
         if not text:
             return []
         if self._nlp is None:
@@ -252,6 +427,7 @@ class TextMiningConfig:
 
     grobid_url: str = "http://localhost:8070"
     timeout: int = 60
+    prefer_scispacy: bool = True
 
 
 class TextMiningPipeline:
@@ -275,8 +451,14 @@ class TextMiningPipeline:
             except Exception as exc:  # pragma: no cover - optional dependency
                 LOGGER.debug("GROBID client unavailable: %s", exc)
                 self._grobid = None
-        self._extractor = relation_extractor or SciSpaCyExtractor()
         self._grounder = grounder or GroundingResolver()
+        if relation_extractor is None:
+            self._extractor = SciSpaCyExtractor(
+                grounder=self._grounder,
+                auto_load=self.config.prefer_scispacy,
+            )
+        else:
+            self._extractor = relation_extractor
 
     # ------------------------------------------------------------------
     # Public API
@@ -294,7 +476,7 @@ class TextMiningPipeline:
         if not tei:
             return [], []
         text = _tei_to_plain_text(tei)
-        relations = self._extractor.extract(text)
+        relations = self._normalise_relations(self._extractor.extract(text))
         if not relations:
             return [], []
         nodes, edges = self._assemble_relations(relations, work_node, record)
@@ -303,6 +485,34 @@ class TextMiningPipeline:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    def _normalise_relations(self, relations: Sequence[object]) -> List[ExtractedRelation]:
+        normalised: List[ExtractedRelation] = []
+        for relation in relations:
+            if isinstance(relation, ExtractedRelation):
+                normalised.append(relation)
+                continue
+            if isinstance(relation, tuple) and len(relation) == 4:
+                agent, verb, target, sentence = relation
+                agent_text = str(agent)
+                target_text = str(target)
+                verb_text = str(verb)
+                sentence_text = str(sentence).strip()
+                grounded_agent = self._ground(agent_text)
+                grounded_target = self._ground(target_text)
+                normalised.append(
+                    ExtractedRelation(
+                        agent=grounded_agent,
+                        target=grounded_target,
+                        verb=verb_text,
+                        sentence=sentence_text,
+                        method="legacy_fallback",
+                        agent_mention=agent_text,
+                        target_mention=target_text,
+                        metadata={"source": "legacy_tuple"},
+                    )
+                )
+        return normalised
+
     def _resolve_tei(self, record: Mapping[str, object]) -> str:
         tei_inline = record.get("fulltext_tei")
         if isinstance(tei_inline, str) and tei_inline.strip():
@@ -341,46 +551,55 @@ class TextMiningPipeline:
 
     def _assemble_relations(
         self,
-        relations: Sequence[RelationTuple],
+        relations: Sequence[ExtractedRelation],
         work_node: Node,
         record: Mapping[str, object],
     ) -> Tuple[List[Node], List[Edge]]:
         nodes: Dict[str, Node] = {}
         edges: List[Edge] = []
         publication = record.get("doi") or record.get("id")
-        for agent, verb, target, sentence in relations:
-            grounded_agent = self._ground(mention=agent)
-            grounded_target = self._ground(mention=target)
+        assemblies = self._build_assembly_frames(relations, work_node)
+
+        for relation, frame, predicate, relation_label in assemblies:
+            grounded_agent = relation.agent
+            grounded_target = relation.target
 
             subject_id = grounded_agent.id
             object_id = grounded_target.id
             nodes.setdefault(subject_id, self._node_from_grounding(grounded_agent))
             nodes.setdefault(object_id, self._node_from_grounding(grounded_target))
 
-            predicate, relation_label = self._predicate_from_verb(verb)
             base_confidence = 0.6 if predicate == BiolinkPredicate.AFFECTS else 0.5
             confidence = base_confidence * min(grounded_agent.confidence, grounded_target.confidence)
             confidence = float(max(0.2, min(confidence, 0.95)))
 
             qualifiers = {
-                "source_sentence": sentence,
+                "source_sentence": relation.sentence,
                 "work_id": work_node.id,
                 "agent_grounding": grounded_agent.provenance,
                 "target_grounding": grounded_target.provenance,
+                "assembly_frame_id": frame.frame_id,
+                "assembly_relation_type": frame.relation_type,
+                "assembly_polarity": frame.polarity,
+                "extraction_method": relation.method,
+                "extraction_metadata": dict(relation.metadata),
             }
             evidence_item = BaseIngestionJob.make_evidence(
                 "TextMiningPipeline",
                 str(publication) if publication else None,
                 confidence,
-                sentence=sentence,
-                relation=verb,
+                sentence=relation.sentence,
+                relation=relation.verb,
                 agent_id=grounded_agent.id,
                 target_id=grounded_target.id,
+                assembly_frame=frame.frame_id,
             )
             evidence_item.annotations["grounding_confidence"] = {
                 "agent": grounded_agent.confidence,
                 "target": grounded_target.confidence,
             }
+            evidence_item.annotations["assembly_relation_type"] = frame.relation_type
+            evidence_item.annotations["assembly_namespace"] = frame.namespace
 
             edge = Edge(
                 subject=subject_id,
@@ -395,6 +614,34 @@ class TextMiningPipeline:
             edges.append(edge)
         return list(nodes.values()), edges
 
+    def _build_assembly_frames(
+        self,
+        relations: Sequence[ExtractedRelation],
+        work_node: Node,
+    ) -> List[Tuple[ExtractedRelation, AssemblyFrame, BiolinkPredicate, str]]:
+        assemblies: List[Tuple[ExtractedRelation, AssemblyFrame, BiolinkPredicate, str]] = []
+        for index, relation in enumerate(relations, start=1):
+            predicate, relation_label = self._predicate_from_verb(relation.verb)
+            relation_type, polarity = self._relation_type_from_label(relation_label)
+            frame_id = f"FRAME:{_slugify(work_node.id)}:{index}"
+            annotations = {
+                "verb": relation.verb,
+                "work_id": work_node.id,
+                "extraction_method": relation.method,
+            }
+            frame = AssemblyFrame(
+                frame_id=frame_id,
+                namespace="INDRA-lite",
+                relation_type=relation_type,
+                polarity=polarity,
+                agent=relation.agent,
+                target=relation.target,
+                evidence_text=relation.sentence,
+                annotations=annotations,
+            )
+            assemblies.append((relation, frame, predicate, relation_label))
+        return assemblies
+
     def _predicate_from_verb(self, verb: str) -> Tuple[BiolinkPredicate, str]:
         verb_lower = verb.lower()
         positive = {"activate", "activates", "enhance", "enhances", "potentiate", "potentiates", "stimulate", "stimulates"}
@@ -407,6 +654,16 @@ class TextMiningPipeline:
         if verb_lower in neutral:
             return BiolinkPredicate.AFFECTS, "biolink:regulates"
         return BiolinkPredicate.RELATED_TO, "biolink:related_to"
+
+    @staticmethod
+    def _relation_type_from_label(relation_label: str) -> Tuple[str, str]:
+        if relation_label.endswith("positively_regulates"):
+            return "Activation", "positive"
+        if relation_label.endswith("negatively_regulates"):
+            return "Inhibition", "negative"
+        if relation_label.endswith("regulates"):
+            return "Regulation", "neutral"
+        return "Association", "unknown"
 
     def _node_from_grounding(self, grounded: GroundedEntity) -> Node:
         attributes: Dict[str, object] = {
@@ -442,5 +699,7 @@ __all__ = [
     "SciSpaCyExtractor",
     "TextMiningConfig",
     "TextMiningPipeline",
+    "ExtractedRelation",
+    "AssemblyFrame",
 ]
 

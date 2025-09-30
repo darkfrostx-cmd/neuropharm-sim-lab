@@ -176,9 +176,12 @@ models are unavailable—yet the structure mirrors a production deployment:
    at your instance).
 2. TEI text is parsed with scispaCy when the `en_core_sci_sm` model is installed,
    otherwise a rule-based extractor looks for *activates/inhibits/modulates*
-   phrases.
-3. Candidate relations are assembled into Biolink nodes/edges and persisted with
-   provenance so downstream services can surface the textual snippet.
+   phrases. The extractor now uses dependency patterns, optional entity linking,
+   and in-process grounding to emit agent/target pairs with confidence scores.
+3. Candidate relations are first normalised into BEL/INDRA-style causal frames
+   before we persist them as Biolink edges, so each edge carries a
+   machine-readable relation type (Activation/Inhibition/etc.) and the assembly
+   frame identifier in its qualifiers.
 
 You can enable the richer NLP stack by installing scispaCy and the associated
 models:
@@ -186,6 +189,22 @@ models:
 ```bash
 pip install scispacy
 python -m spacy download en_core_sci_sm
+```
+
+Entity linking through the scispaCy knowledge base is optional.  When the linker
+is present the extractor records the top candidates under `agent_linking` and
+`target_linking` metadata.  Without it the pipeline still grounds mentions via
+the bundled resolver.
+
+Prefer dependency parsing when the model is available by leaving the default
+configuration untouched.  To force the regex fallback (useful for minimal test
+containers), pass a `TextMiningConfig` that disables the auto-loading behaviour:
+
+```python
+from backend.graph.text_mining import TextMiningConfig, TextMiningPipeline
+
+config = TextMiningConfig(prefer_scispacy=False)
+pipeline = TextMiningPipeline(config=config)
 ```
 
 Point the ingestion orchestrator at a running GROBID container by exporting
