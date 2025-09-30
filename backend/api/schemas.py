@@ -433,6 +433,11 @@ class SimulationDetails(BaseModel):
     receptor_context: Mapping[str, Dict[str, Any]]
 
 
+class SimulationEngineMetadata(BaseModel):
+    backends: Mapping[str, str]
+    fallbacks: Mapping[str, Sequence[str]] = Field(default_factory=dict)
+
+
 class ControlledTerm(BaseModel):
     id: str
     label: str
@@ -452,6 +457,7 @@ class SimulationResponse(BaseModel):
     confidence: Mapping[str, float]
     uncertainty: Mapping[str, float]
     behavioral_tags: Mapping[str, BehavioralTagAnnotation] = Field(default_factory=dict)
+    engine: SimulationEngineMetadata
 
 
 # ---------------------------------------------------------------------------

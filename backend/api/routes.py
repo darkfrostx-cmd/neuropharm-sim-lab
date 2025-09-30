@@ -290,6 +290,10 @@ def run_simulation(
         metric: float(max(0.0, min(1.0, 1.0 - confidence)))
         for metric, confidence in result.confidence.items()
     }
+    engine_metadata = schemas.SimulationEngineMetadata(
+        backends=result.executed_backends,
+        fallbacks={name: list(events) for name, events in result.fallbacks.items()},
+    )
     return schemas.SimulationResponse(
         scores=result.scores,
         details=details,
@@ -297,6 +301,7 @@ def run_simulation(
         confidence=result.confidence,
         uncertainty=uncertainty,
         behavioral_tags={metric: schemas.BehavioralTagAnnotation(**annotation) for metric, annotation in result.behavioral_tags.items()},
+        engine=engine_metadata,
     )
 
 

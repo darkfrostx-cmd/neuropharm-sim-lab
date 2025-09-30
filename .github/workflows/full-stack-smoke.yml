@@ -1,0 +1,27 @@
+name: Full stack smoke test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install base requirements
+        run: pip install -r backend/requirements.txt
+      - name: Install mechanistic backends (PySB/TVB)
+        run: scripts/install_mechanistic_backends.sh
+        env:
+          INSTALL_OSPSUITE: "0"
+      - name: Run smoke harness
+        run: python scripts/full_stack_smoke.py

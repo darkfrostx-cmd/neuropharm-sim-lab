@@ -88,6 +88,9 @@ async def test_simulate_endpoint_returns_confidence_and_timecourse(serotonin_gra
     assert data["behavioral_tags"]["DriveInvigoration"]["rdoc"]["id"] == "RDoC:POS_APPR"
     assert len(data["details"]["timepoints"]) == len(data["details"]["trajectories"]["plasma_concentration"])
     assert data["details"]["receptor_context"]["5-HT1A"]["kg_weight"] >= data["details"]["receptor_context"]["5-HT2A"]["kg_weight"]
+    assert data["engine"]["backends"]["molecular"] in {"scipy", "analytic", "pysb"}
+    assert set(data["engine"]["backends"]) == {"molecular", "pkpd", "circuit"}
+    assert isinstance(data["engine"]["fallbacks"], dict)
 
 
 async def test_simulate_requires_receptors(client):

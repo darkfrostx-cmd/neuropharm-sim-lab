@@ -8,6 +8,19 @@ This guide walks through three hosting options for the FastAPI backend so your C
 2. Install Python 3.10 or newer plus Git on your local machine.
 3. Copy the environment variables you plan to use (for example: `GRAPH_URI`, `GRAPH_USERNAME`, `GRAPH_PASSWORD`, `VECTOR_DB_URL`). Keep them handy—you will paste them into each platform’s settings.
 
+### Install the mechanistic solver bundle locally
+
+Run the helper script from the repository root to install PySB, The Virtual Brain, and (optionally) OSPSuite into your virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+INSTALL_OSPSUITE=0 scripts/install_mechanistic_backends.sh
+```
+
+> **Need OSPSuite?** Request access to the [OSPSuite Azure Artifacts feed](https://www.open-systems-pharmacology.org/). Then rerun the script with either `OSPSUITE_INDEX_URL=https://pkgs.dev.azure.com/<org>/<project>/_packaging/OSPSuite/pypi/simple/` or `OSPSUITE_WHEEL_URL=https://.../ospsuite-<version>-py3-none-manylinux2014_x86_64.whl`. The script automatically installs the pinned PySB and TVB versions and will add the OSPSuite wheel when credentials are supplied.
+
 ---
 
 ## Option A: Render (fully managed backend)
@@ -20,11 +33,23 @@ Render runs the FastAPI app directly from this repository.
    - **Runtime:** Python 3.10
    - **Build command:** `pip install -r backend/requirements.txt`
    - **Start command:** `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
-4. Add environment variables under the **Environment** tab. At minimum set `GRAPH_BACKEND`, `GRAPH_URI`, `GRAPH_USERNAME`, `GRAPH_PASSWORD`, and any vector database credentials.
+4. Add environment variables under the **Environment** tab. At minimum set `GRAPH_BACKEND`, `GRAPH_URI`, `GRAPH_USERNAME`, `GRAPH_PASSWORD`, and any vector database credentials. To enable the heavy solvers in production, add `MOLECULAR_SIM_BACKEND=high_fidelity`, `PKPD_SIM_BACKEND=high_fidelity`, and `CIRCUIT_SIM_BACKEND=high_fidelity` once OSPSuite/TVB are installed.
 5. Click **Create Web Service**. Render will install the dependencies and boot the app. Wait for the dashboard to show a healthy green status.
 6. Visit the generated `https://<service-name>.onrender.com/assistant/capabilities` URL. You should see a JSON payload with the available actions—save this base URL for the Custom GPT and for the Cloudflare Worker setup below.
 
-> **Need the mechanistic extras?** Switch the Render service to the Docker stack and install system libraries (`gfortran`, `cmake`, `libblas-dev`) before adding `pip install -e backend[mechanistic]`.
+> **Need the mechanistic extras?** Switch the Render service to the Docker stack and reuse the repository’s `Dockerfile`. Provide any private OSPSuite feed credentials as build arguments:
+> ```bash
+> render.yaml:
+>   services:
+>     - type: web
+>       name: neuropharm-backend
+>       env: docker
+>       plan: starter
+>       dockerCommand: >-
+>         --build-arg OSPSUITE_INDEX_URL=${OSPSUITE_INDEX_URL}
+>         --build-arg OSPSUITE_VERSION=${OSPSUITE_VERSION}
+> ```
+> When the `/simulate` endpoint runs with the mechanistic stack enabled it reports which backend executed in the `engine.backends` object so you can confirm the upgrade immediately.
 
 ---
 
@@ -42,6 +67,8 @@ Hugging Face Spaces lets you run the backend on free hardware tiers.
 5. Open `https://<space-url>/assistant/capabilities` in a browser to confirm the API is live.
 
 > **Tip:** For faster dependency installs, add a `pip-cache` secret (Personal Access Token) so the Space can pull cached wheels.
+
+> **Mechanistic add-on:** Add an additional **Build step** in the Space UI: `bash scripts/install_mechanistic_backends.sh`. Set `INSTALL_OSPSUITE=0` if you just want the open-source PySB/TVB bundle, or point `OSPSUITE_WHEEL_URL` at the official wheel to include OSPSuite.
 
 ---
 
@@ -73,9 +100,9 @@ Deploy the Worker once you have a reachable backend (Render, Hugging Face, or an
    npx wrangler d1 migrations apply neuropharm-vector-cache
    ```
 5. Deploy the Worker:
-   ```bash
-   npx wrangler deploy --var API_BASE_URL:https://your-backend-url
-   ```
+  ```bash
+  npx wrangler deploy --var API_BASE_URL:https://your-backend-url
+  ```
 6. Verify the health endpoint at `https://<worker-subdomain>/__worker/health`. All bindings should report `ok`. If anything says `missing`, re-check the namespace IDs and secrets.
 7. Point your Custom GPT at the Worker instead of the origin backend. Use the Worker URL for both `/assistant/capabilities` and `/assistant/execute`. The Worker forwards requests, adds caching headers, and keeps “memory” in KV and D1.
 
@@ -97,6 +124,8 @@ For each execution action, send a JSON body shaped like:
   }
 }
 ```
+
+> **Runtime visibility:** The `/simulate` response now includes an `engine` object detailing which solver executed (`engine.backends`) and any fallbacks triggered (`engine.fallbacks`). Surface these fields in cockpit telemetry to verify when the high-fidelity stack is engaged.
 
 The backend validates the payload, executes the workflow, and returns structured JSON containing the normalised input plus the result data—no manual parsing required.
 

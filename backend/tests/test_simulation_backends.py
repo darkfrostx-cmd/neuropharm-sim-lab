@@ -104,7 +104,9 @@ def test_molecular_prefers_pysb_when_available(monkeypatch: pytest.MonkeyPatch, 
     result = molecular.simulate_cascade(cascade_params)
 
     assert calls["effect"] > 0.0
+    assert result.backend == "pysb"
     assert result.summary["backend"] == "pysb"
+    assert result.fallbacks == ()
     assert all(math.isfinite(value) for value in result.summary.values() if isinstance(value, float))
 
 
@@ -143,7 +145,9 @@ def test_pkpd_prefers_ospsuite_when_available(
 
     profile = pkpd.simulate_pkpd(pkpd_params)
 
+    assert profile.backend == "ospsuite"
     assert profile.summary["backend"] == "ospsuite"
+    assert profile.fallbacks == ()
     assert profile.timepoints[-1] == pytest.approx(48.0, rel=1e-3)
     assert profile.plasma_concentration.shape == profile.brain_concentration.shape
 
@@ -197,7 +201,9 @@ def test_circuit_prefers_tvb_when_available(monkeypatch: pytest.MonkeyPatch, cir
 
     response = circuit.simulate_circuit_response(circuit_params)
 
+    assert response.backend == "tvb"
     assert response.global_metrics["backend"] == "tvb"
+    assert response.fallbacks == ()
     assert all(region in response.region_activity for region in regions)
     assert response.timepoints.shape[0] == circuit_params.timepoints.shape[0]
 
@@ -209,7 +215,9 @@ def test_molecular_falls_back_to_scipy(monkeypatch: pytest.MonkeyPatch, cascade_
 
     result = molecular.simulate_cascade(cascade_params)
 
+    assert result.backend == "scipy"
     assert result.summary["backend"] == "scipy"
+    assert result.fallbacks == ()
     assert set(result.node_activity) == set(cascade_params.downstream_nodes)
     assert all(np.all(node_activity >= 0.0) for node_activity in result.node_activity.values())
 
@@ -221,7 +229,9 @@ def test_pkpd_falls_back_to_scipy(monkeypatch: pytest.MonkeyPatch, pkpd_params: 
 
     profile = pkpd.simulate_pkpd(pkpd_params)
 
+    assert profile.backend == "scipy"
     assert profile.summary["backend"] == "scipy"
+    assert profile.fallbacks == ()
     assert profile.timepoints[0] == pytest.approx(0.0)
     assert np.all(profile.plasma_concentration >= 0.0)
     assert np.all(profile.brain_concentration >= 0.0)
@@ -234,6 +244,8 @@ def test_circuit_falls_back_to_scipy(monkeypatch: pytest.MonkeyPatch, circuit_pa
 
     response = circuit.simulate_circuit_response(circuit_params)
 
+    assert response.backend == "scipy"
     assert response.global_metrics["backend"] == "scipy"
+    assert response.fallbacks == ()
     assert set(response.region_activity) == set(circuit_params.regions)
     assert response.timepoints.shape[0] == circuit_params.timepoints.shape[0]
