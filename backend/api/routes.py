@@ -270,7 +270,7 @@ def run_simulation(
         adhd=request.adhd,
         gut_bias=request.gut_bias,
         pvt_weight=request.pvt_weight,
-        assumptions=request.assumptions,
+        assumptions=request.assumptions.model_dump(),
     )
     try:
         result = svc.simulation_engine.run(engine_request)

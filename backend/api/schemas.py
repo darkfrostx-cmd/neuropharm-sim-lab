@@ -317,6 +317,32 @@ class ReceptorSpec(BaseModel):
     mech: Mechanism
 
 
+class SimulationAssumptions(BaseModel):
+    trkB_facilitation: bool = Field(
+        default=False,
+        description="Enable BDNF/TrkB plasticity facilitation cascade",
+    )
+    alpha2a_hcn_closure: bool = Field(
+        default=False,
+        description="Assume α2A-mediated HCN channel closure boosting working memory",
+    )
+    mu_opioid_bonding: bool = Field(
+        default=False,
+        description="Engage μ-opioid social bonding microcircuit weights",
+    )
+    a2a_d2_heteromer: bool = Field(
+        default=False,
+        description="Include A2A–D2 heteromer facilitation of exploration bias",
+    )
+    alpha2c_gate: bool = Field(
+        default=False,
+        description="Enable α2C cortico-striatal gate dampening stress arousal",
+    )
+
+    class Config:
+        extra = "forbid"
+
+
 class SimulationRequest(BaseModel):
     receptors: Mapping[str, ReceptorSpec]
     acute_1a: bool = False
@@ -324,7 +350,7 @@ class SimulationRequest(BaseModel):
     adhd: bool = False
     gut_bias: bool = False
     pvt_weight: float = Field(default=0.5, ge=0.0, le=1.0)
-    assumptions: Mapping[str, bool] = Field(default_factory=dict)
+    assumptions: SimulationAssumptions = Field(default_factory=SimulationAssumptions)
 
 
 class Citation(BaseModel):
@@ -493,6 +519,7 @@ __all__ = [
     "ReceptorEffect",
     "ReceptorQuery",
     "ReceptorSpec",
+    "SimulationAssumptions",
     "SimulationDetails",
     "SimulationRequest",
     "SimulationResponse",

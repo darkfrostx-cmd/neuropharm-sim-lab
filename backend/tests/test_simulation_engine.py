@@ -103,3 +103,61 @@ def test_affinity_expression_scaling_modulates_weights():
         > low_result.module_summaries["receptor_inputs"][canonical]["kg_weight"]
     )
     assert high_result.scores["DriveInvigoration"] >= low_result.scores["DriveInvigoration"]
+
+
+def test_assumption_flags_adjust_nodes_and_behavioural_axes():
+    engine = SimulationEngine(time_step=6.0)
+    receptors = {
+        "MOR": ReceptorEngagement(
+            name="MOR",
+            occupancy=0.6,
+            mechanism="agonist",
+            kg_weight=0.65,
+            evidence=0.7,
+        ),
+        "A2A": ReceptorEngagement(
+            name="A2A",
+            occupancy=0.5,
+            mechanism="antagonist",
+            kg_weight=0.55,
+            evidence=0.68,
+        ),
+    }
+
+    baseline = engine.run(
+        EngineRequest(
+            receptors=receptors,
+            regimen="acute",
+            adhd=False,
+            gut_bias=False,
+            pvt_weight=0.4,
+        )
+    )
+    enriched = engine.run(
+        EngineRequest(
+            receptors=receptors,
+            regimen="acute",
+            adhd=False,
+            gut_bias=False,
+            pvt_weight=0.4,
+            assumptions={
+                "mu_opioid_bonding": True,
+                "a2a_d2_heteromer": True,
+                "alpha2c_gate": True,
+            },
+        )
+    )
+
+    assert "cascade_oxytocin" not in baseline.trajectories
+    assert "cascade_oxytocin" in enriched.trajectories
+    assert "cascade_darpp32" in enriched.trajectories
+
+    base_axes = baseline.module_summaries.get("behavioural_axes", {})
+    enriched_axes = enriched.module_summaries["behavioural_axes"]
+    assert enriched_axes["social_affiliation"] > base_axes.get("social_affiliation", 0.0)
+    assert enriched_axes["exploration"] > base_axes.get("exploration", 0.0)
+    assert enriched_axes["cognitive_flexibility"] > base_axes.get("cognitive_flexibility", 0.0)
+
+    assumption_axes = enriched.module_summaries["assumption_axes"]
+    assert assumption_axes["social_affiliation"] > 0.0
+    assert enriched.module_summaries["assumptions"]["mu_opioid_bonding"] is True
