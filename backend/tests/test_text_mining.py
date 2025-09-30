@@ -1,7 +1,8 @@
 from typing import Iterable, List, Sequence, Tuple
 
+from backend.graph.entity_grounding import GroundedEntity
 from backend.graph.models import BiolinkEntity, BiolinkPredicate, Node
-from backend.graph.text_mining import SciSpaCyExtractor, TextMiningPipeline
+from backend.graph.text_mining import ExtractedRelation, SciSpaCyExtractor, TextMiningPipeline
 
 
 def make_work_node() -> Node:
@@ -36,6 +37,10 @@ def test_text_mining_pipeline_extracts_relations_from_inline_tei() -> None:
     assert first_edge.relation in {"biolink:positively_regulates", "biolink:negatively_regulates"}
     assert "agent_grounding" in first_edge.qualifiers
     assert first_edge.evidence[0].annotations["grounding_confidence"]["agent"] > 0.5
+    assert "assembly_frame_id" in first_edge.qualifiers
+    assert first_edge.qualifiers["assembly_relation_type"] in {"Activation", "Inhibition", "Regulation", "Association"}
+    assert first_edge.evidence[0].annotations["assembly_relation_type"] == first_edge.qualifiers["assembly_relation_type"]
+    assert first_edge.qualifiers["extraction_metadata"]["pattern"] in {"dependency_matcher", "simple_verb_pattern"}
 
 
 class _FakeToken:
@@ -55,7 +60,9 @@ class _FakeDoc:
         for token in self._tokens:
             token.doc = self
 
-    def __getitem__(self, index: int) -> _FakeToken:
+    def __getitem__(self, index: int | slice) -> object:
+        if isinstance(index, slice):
+            return _FakeSpan(self._tokens[index])
         return self._tokens[index]
 
     def __len__(self) -> int:  # pragma: no cover - not used but mirrors spaCy API
@@ -73,6 +80,13 @@ class _FakeSentence:
 
     def as_doc(self) -> _FakeDoc:
         return self._doc
+
+
+class _FakeSpan:
+    def __init__(self, tokens: Sequence[_FakeToken]) -> None:
+        self._tokens = list(tokens)
+        self.text = " ".join(token.text for token in tokens)
+        self._ = type("_Ext", (), {"kb_ents": []})()
 
 
 class _FakeMatcher:
@@ -97,6 +111,18 @@ class _FakeNLP:
         return None
 
 
+class _StubGrounder:
+    def resolve(self, mention: str) -> GroundedEntity:
+        return GroundedEntity(
+            id=f"TEST:{mention.upper().replace(' ', '_')}",
+            name=mention,
+            category=BiolinkEntity.NAMED_THING,
+            confidence=0.9,
+            synonyms=(mention,),
+            provenance={"strategy": "stub"},
+        )
+
+
 def test_scispacy_extractor_dependency_matches_multiword_terms() -> None:
     sentence = "5-HT2A receptor activates phospholipase C pathway."
     tokens = [
@@ -114,11 +140,18 @@ def test_scispacy_extractor_dependency_matches_multiword_terms() -> None:
     tokens[5].right_edge = tokens[5]
     doc = _FakeDoc(sentence, tokens)
     matcher = _FakeMatcher([(0, (2, 1, 5))])
-    extractor = SciSpaCyExtractor(nlp=_FakeNLP(doc), matcher=matcher)
+    extractor = SciSpaCyExtractor(nlp=_FakeNLP(doc), matcher=matcher, grounder=_StubGrounder())
 
     relations = extractor.extract(sentence)
 
-    assert relations == [("5-HT2A receptor", "activate", "phospholipase C pathway", sentence.strip())]
+    assert len(relations) == 1
+    relation = relations[0]
+    assert isinstance(relation, ExtractedRelation)
+    assert relation.agent.name == "5-HT2A receptor"
+    assert relation.target.name == "phospholipase C pathway"
+    assert relation.verb == "activate"
+    assert relation.sentence == sentence.strip()
+    assert relation.method == "dependency_matcher"
 
 
 def test_text_mining_predicate_mapping_handles_lemmatised_verbs() -> None:

@@ -27,6 +27,9 @@ This roadmap translates the outstanding blueprint gaps into concrete, staged wor
 ### Dependencies & Notes
 - Confirm licensing of Semantic Scholar data for redistribution.
 - Provide sample notebooks demonstrating the assembly pipeline for contributors.
+- The repository now includes a dependency-matcher-based extractor and
+  INDRA-lite assembly stage behind optional scispaCy models; see the README for
+  installation guidance and fallback behaviour.
 
 ## Workstream 2 – Expanded Atlas and Geometry Support
 ### Objectives
