@@ -35,14 +35,8 @@ Hugging Face Spaces lets you run the backend on free hardware tiers.
 1. Create a new **Space** and pick **FastAPI** as the template.
 2. Upload these files into the Space:
    - `backend/` directory (you can copy the whole folder or zip and upload it).
-   - A short entry script named `app.py` that imports the FastAPI app:
-     ```python
-     from backend.main import app
-     ```
-   - `requirements.txt` that simply references the backend requirements:
-     ```text
-     -r backend/requirements.txt
-     ```
+   - The helper files from `hf_space/` (`app.py` and `requirements.txt`) which already contain the correct import and dependency
+     references.
 3. In the Space **Settings → Variables and secrets**, add the same environment variables used on Render (`GRAPH_*`, `VECTOR_DB_URL`, etc.).
 4. Click **Restart**. The Space will rebuild, install the requirements, and expose a public URL such as `https://<space-owner>-<space-name>.hf.space`.
 5. Open `https://<space-url>/assistant/capabilities` in a browser to confirm the API is live.
@@ -62,10 +56,12 @@ Deploy the Worker once you have a reachable backend (Render, Hugging Face, or an
    ```
 2. Create the storage bindings:
    ```bash
-   npx wrangler kv:namespace create neuropharm-config
+   npx wrangler kv namespace create neuropharm-config
    npx wrangler d1 create neuropharm-vector-cache
    ```
-   Copy the generated IDs into `wrangler.toml` under the `kv_namespaces` and `d1_databases` sections.
+   Copy the generated IDs into `wrangler.toml` under the `kv_namespaces` and `d1_databases` sections. The Worker expects the KV
+   binding to be named `NEUROPHARM_CONFIG` and the D1 binding to be `VECTOR_CACHE`, both already declared in the template
+   `wrangler.toml` file.
 3. Seed secrets and default variables:
    ```bash
    npx wrangler secret put API_BASE_URL      # e.g. https://your-render-service.onrender.com

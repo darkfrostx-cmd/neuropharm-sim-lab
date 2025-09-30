@@ -1,7 +1,7 @@
 export interface Env {
   API_BASE_URL?: string;
   CACHE_TTL_SECONDS?: string;
-  CONFIG_KV?: KVNamespace;
+  NEUROPHARM_CONFIG?: KVNamespace;
   VECTOR_CACHE?: D1Database;
 }
 
@@ -15,7 +15,7 @@ async function resolveBackendBase(env: Env): Promise<string | null> {
     return direct;
   }
   try {
-    const kvValue = await env.CONFIG_KV?.get("api_base_url");
+    const kvValue = await env.NEUROPHARM_CONFIG?.get("api_base_url");
     if (kvValue && kvValue.trim()) {
       return kvValue.trim();
     }
@@ -145,7 +145,7 @@ function buildHealthPayload(env: Env, backendBase: string | null): Response {
     status: "ok",
     backend: backendBase,
     cache: env.VECTOR_CACHE ? "enabled" : "disabled",
-    configNamespace: env.CONFIG_KV ? "bound" : "unbound",
+    configNamespace: env.NEUROPHARM_CONFIG ? "bound" : "unbound",
   };
   return new Response(JSON.stringify(payload), {
     status: 200,

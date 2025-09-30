@@ -8,8 +8,8 @@ API_BASE_URL = "http://127.0.0.1:8000"
 CACHE_TTL_SECONDS = "60"
 
 [[kv_namespaces]]
-binding = "CONFIG_KV"
-# Replace the values below after creating the namespace via `wrangler kv:namespace create`.
+binding = "NEUROPHARM_CONFIG"
+# Replace the values below after creating the namespace via `wrangler kv namespace create`.
 id = "<YOUR_KV_NAMESPACE_ID>"
 preview_id = "<YOUR_KV_PREVIEW_ID>"
 
