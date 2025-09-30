@@ -8,6 +8,7 @@ import re
 from typing import Any, Dict, Iterable, List, Sequence, Set
 
 from ..engine.receptors import canonical_receptor_name
+from ..graph.evidence_quality import EdgeQualitySummary, EvidenceQualityScorer
 from ..graph.models import BiolinkPredicate, Edge, Node
 from ..graph.service import GraphService
 
@@ -32,12 +33,14 @@ class GraphBackedReceptorAdapter:
         graph_service: GraphService,
         default_kg_weight: float = 0.25,
         default_evidence: float = 0.45,
+        quality_scorer: EvidenceQualityScorer | None = None,
     ) -> None:
         self.graph_service = graph_service
         self.default_kg_weight = default_kg_weight
         self.default_evidence = default_evidence
         self._cache: Dict[str, Dict[str, Any]] = {}
         self._identifier_cache: Dict[str, Sequence[str]] = {}
+        self.quality_scorer = quality_scorer or EvidenceQualityScorer()
 
     # ------------------------------------------------------------------
     # Cache management helpers
@@ -148,8 +151,11 @@ class GraphBackedReceptorAdapter:
             if predicate in {BiolinkPredicate.EXPRESSES, BiolinkPredicate.COEXPRESSION_WITH}:
                 has_expression = True
 
+            quality = self.quality_scorer.summarise_edge(edge)
+
             self._harvest_from_edge(
                 edge,
+                quality_summary=quality,
                 affinity_values=affinity_values,
                 expression_values=expression_values,
                 evidence_values=evidence_values,
@@ -276,46 +282,48 @@ class GraphBackedReceptorAdapter:
         self,
         edge: Edge,
         *,
+        quality_summary: EdgeQualitySummary,
         affinity_values: List[float],
         expression_values: List[float],
         evidence_values: List[float],
         sources: set[str],
     ) -> None:
         predicate = edge.predicate
-        conf_value = _safe_float(edge.confidence)
-        if conf_value is not None:
-            evidence_values.append(conf_value)
+        quality_score = quality_summary.score
+        for breakdown in quality_summary.breakdowns:
+            score = breakdown.total_score
+            evidence_values.append(float(score))
             if predicate == BiolinkPredicate.INTERACTS_WITH:
-                affinity_values.append(conf_value)
-            if predicate in {BiolinkPredicate.EXPRESSES, BiolinkPredicate.COEXPRESSION_WITH}:
-                expression_values.append(conf_value)
+                affinity_values.append(float(score))
+            elif predicate in {BiolinkPredicate.EXPRESSES, BiolinkPredicate.COEXPRESSION_WITH}:
+                expression_values.append(float(score))
 
         for key in ("affinity", "affinity_nM", "pchembl_value", "weight"):
             value = _safe_float(edge.qualifiers.get(key))
             if value is not None:
+                weighted_value = value
+                if quality_score is not None:
+                    weighted_value = value * float(max(0.1, min(1.0, quality_score)))
                 if predicate == BiolinkPredicate.INTERACTS_WITH:
-                    affinity_values.append(value)
+                    affinity_values.append(weighted_value)
                 elif predicate in {BiolinkPredicate.EXPRESSES, BiolinkPredicate.COEXPRESSION_WITH}:
-                    expression_values.append(value)
+                    expression_values.append(weighted_value)
                 else:
-                    evidence_values.append(value)
+                    evidence_values.append(weighted_value)
 
         if predicate in {BiolinkPredicate.EXPRESSES, BiolinkPredicate.COEXPRESSION_WITH}:
             for key in ("expression", "zscore", "tau"):
                 value = _safe_float(edge.qualifiers.get(key))
                 if value is not None:
-                    expression_values.append(value)
+                    weighted_value = value
+                    if quality_score is not None:
+                        weighted_value = value * float(max(0.1, min(1.0, quality_score)))
+                    expression_values.append(weighted_value)
 
         for ev in edge.evidence:
             if ev.source:
                 sources.add(ev.source)
-            ev_conf = _safe_float(ev.confidence)
-            if ev_conf is not None:
-                evidence_values.append(ev_conf)
-                if predicate == BiolinkPredicate.INTERACTS_WITH:
-                    affinity_values.append(ev_conf)
-                if predicate in {BiolinkPredicate.EXPRESSES, BiolinkPredicate.COEXPRESSION_WITH}:
-                    expression_values.append(ev_conf)
+            # quality_summary already accounts for evidence confidences
 
 
 def _safe_float(value: Any) -> float | None:

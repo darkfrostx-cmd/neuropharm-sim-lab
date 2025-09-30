@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field
 from ..atlas import AtlasCoordinate as DomainAtlasCoordinate
 from ..atlas import AtlasOverlay as DomainAtlasOverlay
 from ..atlas import AtlasVolume as DomainAtlasVolume
+from ..graph.evidence_quality import (
+    EdgeQualitySummary,
+    EvidenceQualityBreakdown,
+    EvidenceQualityScorer,
+)
 from ..graph.models import BiolinkPredicate, Edge, Evidence, Node
 from ..reasoning import CausalSummary, CounterfactualScenario
 
@@ -18,6 +23,9 @@ from ..reasoning import CausalSummary, CounterfactualScenario
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+
+QUALITY_SCORER = EvidenceQualityScorer()
 
 
 class ErrorPayload(BaseModel):
@@ -36,15 +44,68 @@ class EvidenceProvenance(BaseModel):
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     uncertainty: str | None = Field(default=None, description="Qualitative uncertainty descriptor")
     annotations: Dict[str, Any] = Field(default_factory=dict)
+    quality: "EvidenceQualityMetrics"
 
     @classmethod
     def from_domain(cls, evidence: Evidence) -> "EvidenceProvenance":
+        breakdown = QUALITY_SCORER.score_evidence(evidence)
         return cls(
             source=evidence.source,
             reference=evidence.reference,
             confidence=evidence.confidence,
             uncertainty=evidence.uncertainty,
             annotations=dict(evidence.annotations),
+            quality=EvidenceQualityMetrics.from_breakdown(breakdown),
+        )
+
+
+class EvidenceQualityMetrics(BaseModel):
+    """Structured view of the evidence quality calculation."""
+
+    base_confidence: float
+    provenance_score: float
+    species: str | None = None
+    species_score: float
+    chronicity: str | None = None
+    chronicity_score: float
+    design: str | None = None
+    design_score: float
+    total_score: float
+
+    @classmethod
+    def from_breakdown(cls, breakdown: EvidenceQualityBreakdown) -> "EvidenceQualityMetrics":
+        return cls(
+            base_confidence=breakdown.base_confidence,
+            provenance_score=breakdown.provenance_score,
+            species=breakdown.species,
+            species_score=breakdown.species_score,
+            chronicity=breakdown.chronicity,
+            chronicity_score=breakdown.chronicity_score,
+            design=breakdown.design,
+            design_score=breakdown.design_score,
+            total_score=breakdown.total_score,
+        )
+
+
+class EdgeQualityMetrics(BaseModel):
+    """Aggregate quality state for an edge."""
+
+    score: float | None
+    species_distribution: Dict[str, int] = Field(default_factory=dict)
+    chronicity_distribution: Dict[str, int] = Field(default_factory=dict)
+    design_distribution: Dict[str, int] = Field(default_factory=dict)
+    has_human_data: bool = False
+    has_animal_data: bool = False
+
+    @classmethod
+    def from_summary(cls, summary: EdgeQualitySummary) -> "EdgeQualityMetrics":
+        return cls(
+            score=summary.score,
+            species_distribution=dict(summary.species_distribution),
+            chronicity_distribution=dict(summary.chronicity_distribution),
+            design_distribution=dict(summary.design_distribution),
+            has_human_data=summary.has_human_data,
+            has_animal_data=summary.has_animal_data,
         )
 
 
@@ -113,11 +174,17 @@ class EvidenceHit(BaseModel):
 
     edge: GraphEdge
     provenance: Sequence[EvidenceProvenance]
+    quality: EdgeQualityMetrics
 
     @classmethod
     def from_domain(cls, edge: Edge, evidence: Iterable[Evidence]) -> "EvidenceHit":
         provenance = [EvidenceProvenance.from_domain(ev) for ev in evidence]
-        return cls(edge=GraphEdge.from_domain(edge), provenance=provenance)
+        summary = QUALITY_SCORER.summarise_edge(edge)
+        return cls(
+            edge=GraphEdge.from_domain(edge),
+            provenance=provenance,
+            quality=EdgeQualityMetrics.from_summary(summary),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +540,9 @@ __all__ = [
     "ControlledTerm",
     "BehavioralTagAnnotation",
     "ErrorPayload",
+    "EdgeQualityMetrics",
     "EvidenceHit",
+    "EvidenceQualityMetrics",
     "EvidenceProvenance",
     "EvidenceSearchRequest",
     "EvidenceSearchResponse",
