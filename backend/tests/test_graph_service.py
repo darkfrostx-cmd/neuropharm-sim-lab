@@ -8,7 +8,7 @@ from backend.graph.models import (
 from backend.graph.gaps import GapReport
 from backend.graph.persistence import InMemoryGraphStore
 from backend.graph.service import GraphService
-from backend.graph.literature import LiteratureRecord
+from backend.graph.literature import LiteratureAggregator, LiteratureRecord
 
 
 def build_store() -> InMemoryGraphStore:
@@ -81,4 +81,39 @@ def test_literature_suggestions_use_aggregator() -> None:
     assert suggestions == [
         "Sertraline and SLC6A4 modulation (2022) [PMID:12345] via Semantic Scholar <https://example.org/pmid12345>"
     ]
+
+
+def test_gap_reports_include_dual_source_literature() -> None:
+    class _OpenAlexStub:
+        def search(self, query: str, *, limit: int = 5):  # type: ignore[override]
+            yield LiteratureRecord(
+                title="Sertraline effects on SLC6A4",
+                identifier="openalex:1",
+                year=2021,
+                source="OpenAlex",
+                score=30,
+                url="https://example.org/openalex",
+            )
+
+    class _SemanticScholarStub:
+        def search(self, query: str, *, limit: int = 5):  # type: ignore[override]
+            yield LiteratureRecord(
+                title="Dual transporter modulation",
+                identifier="semantic:1",
+                year=2020,
+                source="Semantic Scholar",
+                score=25,
+                url="https://example.org/semantic",
+            )
+
+    aggregator = LiteratureAggregator(clients=[_OpenAlexStub(), _SemanticScholarStub()])
+
+    store = build_store()
+    service = GraphService(store=store, literature=aggregator)
+
+    gaps = service.find_gaps(["HGNC:5", "HGNC:6", "CHEMBL:25"], top_k=3)
+    gap = next(gap for gap in gaps if gap.subject == "CHEMBL:25" and gap.object == "HGNC:6")
+
+    assert any("via OpenAlex" in entry for entry in gap.literature)
+    assert any("via Semantic Scholar" in entry for entry in gap.literature)
 
