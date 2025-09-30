@@ -18,7 +18,13 @@ from .ingest_openalex import OpenAlexClient  # type: ignore
 from .models import Edge, Evidence, Node
 from .persistence import CompositeGraphStore, GraphFragment, GraphStore, InMemoryGraphStore
 from .vector_store import build_vector_store
-from .literature import LiteratureAggregator, LiteratureRecord
+from .literature import (
+    LiteratureAggregator,
+    LiteratureClient,
+    LiteratureRecord,
+    OpenAlexSearch,
+    SemanticScholarClient,
+)
 
 
 @dataclass(slots=True)
@@ -235,30 +241,40 @@ class GraphService:
         return treatments, outcomes, assumptions
 
     def _suggest_literature(self, subject: str, target: str, limit: int = 3) -> List[str]:
+        aggregation_failed = False
         aggregator = self._ensure_literature_aggregator()
-        if aggregator is None:
-            client = self._ensure_literature_client()
-            if client is None:
-                return []
-            suggestions: List[str] = []
-            query = f"{subject} {target}"
+        if aggregator is not None:
             try:
-                for record in client.iter_works(search=query, per_page=limit):
-                    title = record.get("display_name") or "Unknown work"
-                    year = record.get("publication_year")
-                    identifier = record.get("id") or record.get("ids", {}).get("openalex")
-                    snippet = f"{title} ({year})" if year else title
-                    if identifier:
-                        snippet = f"{snippet} [{identifier}]"
-                    suggestions.append(snippet)
-                    if len(suggestions) >= limit:
-                        break
-            except Exception:  # pragma: no cover - network errors
-                return []
-            return suggestions
+                records = aggregator.suggest(subject, target, limit=limit)
+            except Exception:  # pragma: no cover - network dependent
+                aggregation_failed = True
+            else:
+                return [self._format_literature_record(record) for record in records]
+        else:
+            aggregation_failed = True
 
-        records = aggregator.suggest(subject, target, limit=limit)
-        return [self._format_literature_record(record) for record in records]
+        if not aggregation_failed:
+            return []
+
+        client = self._ensure_literature_client()
+        if client is None:
+            return []
+        suggestions: List[str] = []
+        query = f"{subject} {target}"
+        try:
+            for record in client.iter_works(search=query, per_page=limit):
+                title = record.get("display_name") or "Unknown work"
+                year = record.get("publication_year")
+                identifier = record.get("id") or record.get("ids", {}).get("openalex")
+                snippet = f"{title} ({year})" if year else title
+                if identifier:
+                    snippet = f"{snippet} [{identifier}]"
+                suggestions.append(snippet)
+                if len(suggestions) >= limit:
+                    break
+        except Exception:  # pragma: no cover - network errors
+            return []
+        return suggestions
 
     def _ensure_label(self, node_id: str) -> None:
         if node_id in self._label_cache:
@@ -340,10 +356,24 @@ class GraphService:
     def _ensure_literature_aggregator(self) -> LiteratureAggregator | None:
         if self._literature is not None:
             return self._literature
-        if self._literature_client is not None:
-            return None
         try:
-            self._literature = LiteratureAggregator()
+            clients: List[LiteratureClient] = []
+            openalex_client = self._ensure_literature_client()
+            try:
+                if openalex_client is not None:
+                    clients.append(OpenAlexSearch(openalex_client))
+                else:
+                    clients.append(OpenAlexSearch())
+            except Exception:  # pragma: no cover - optional dependency
+                pass
+            try:
+                clients.append(SemanticScholarClient())
+            except Exception:  # pragma: no cover - optional dependency
+                pass
+            if clients:
+                self._literature = LiteratureAggregator(clients=clients)
+            else:
+                self._literature = LiteratureAggregator()
         except Exception:  # pragma: no cover - optional dependency
             self._literature = None
         return self._literature
