@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -58,6 +59,14 @@ def _coerce_str_list(value: Any) -> List[str]:
 def _coerce_dict(value: Any) -> Dict[str, Any]:
     if isinstance(value, dict):
         return dict(value)
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(decoded, dict):
+            return decoded
+        return {}
     if hasattr(value, "items"):
         return dict(value.items())  # type: ignore[call-arg]
     return {}
@@ -134,7 +143,20 @@ def _edge_from_payload(payload: Dict[str, Any]) -> Edge | None:
     qualifiers_raw = _coerce_dict(payload.get("qualifiers"))
     qualifiers = {str(key): value for key, value in qualifiers_raw.items()}
     evidence_items: List[Evidence] = []
-    for raw in payload.get("evidence", []) or []:
+    evidence_payload = payload.get("evidence", []) or []
+    if isinstance(evidence_payload, str):
+        try:
+            evidence_payload = json.loads(evidence_payload)
+        except json.JSONDecodeError:
+            evidence_payload = []
+    if not isinstance(evidence_payload, list):
+        evidence_payload = []
+    for raw in evidence_payload:
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
         if not isinstance(raw, dict):
             continue
         source = raw.get("source")
@@ -381,16 +403,60 @@ class Neo4jGraphStore(GraphStore):  # pragma: no cover - requires external servi
     def close(self) -> None:
         self._driver.close()
 
+    @staticmethod
+    def _neo4j_value(value: Any) -> Any:
+        """Ensure values conform to Neo4j property constraints."""
+
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, (list, tuple, set)):
+            sanitized: List[Any] = []
+            for item in value:
+                converted = Neo4jGraphStore._neo4j_value(item)
+                if isinstance(converted, list):
+                    # Nested arrays are not supported; serialise the whole value.
+                    return json.dumps(list(value), default=Neo4jGraphStore._json_default)
+                if converted is None:
+                    continue
+                if isinstance(converted, (str, int, float, bool)):
+                    sanitized.append(converted)
+                else:
+                    # Non-primitive item -> serialise entire value for clarity.
+                    return json.dumps(list(value), default=Neo4jGraphStore._json_default)
+            return sanitized
+        if isinstance(value, dict):
+            return json.dumps(value, default=Neo4jGraphStore._json_default)
+        return json.dumps(value, default=Neo4jGraphStore._json_default)
+
+    @staticmethod
+    def _json_default(value: Any) -> Any:
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if hasattr(value, "as_linkml"):
+            return value.as_linkml()
+        return str(value)
+
     def upsert_nodes(self, nodes: Iterable[Node]) -> None:
         cypher = """
         UNWIND $rows AS row
         MERGE (n {id: row.id})
         SET n += row.properties
         """
-        payload = [
-            {"id": node.id, "properties": {k: v for k, v in node.as_linkml().items() if v is not None}}
-            for node in nodes
-        ]
+        payload = []
+        for node in nodes:
+            properties: Dict[str, Any] = {}
+            for key, value in node.as_linkml().items():
+                if value is None:
+                    continue
+                converted = self._neo4j_value(value)
+                if converted is None:
+                    continue
+                properties[key] = converted
+            payload.append({"id": node.id, "properties": properties})
         if not payload:
             return
         with self._driver.session() as session:
@@ -404,15 +470,26 @@ class Neo4jGraphStore(GraphStore):  # pragma: no cover - requires external servi
         MERGE (s)-[r:REL {predicate: row.predicate, object: row.object, subject: row.subject}]->(o)
         SET r += row.properties
         """
-        payload = [
-            {
-                "subject": edge.subject,
-                "object": edge.object,
-                "predicate": edge.predicate.value,
-                "properties": {k: v for k, v in edge.as_linkml().items() if k not in {"subject", "object", "predicate"}},
-            }
-            for edge in edges
-        ]
+        payload = []
+        for edge in edges:
+            properties: Dict[str, Any] = {}
+            for key, value in edge.as_linkml().items():
+                if key in {"subject", "object", "predicate"}:
+                    continue
+                if value is None:
+                    continue
+                converted = self._neo4j_value(value)
+                if converted is None:
+                    continue
+                properties[key] = converted
+            payload.append(
+                {
+                    "subject": edge.subject,
+                    "object": edge.object,
+                    "predicate": edge.predicate.value,
+                    "properties": properties,
+                }
+            )
         if not payload:
             return
         with self._driver.session() as session:
