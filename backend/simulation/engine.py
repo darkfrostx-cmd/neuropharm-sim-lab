@@ -155,6 +155,7 @@ class SimulationEngine:
         receptor_weights: Dict[str, float] = {}
         receptor_evidence: Dict[str, float] = {}
         behaviour_axes: Dict[str, float] = {}
+        assumption_behaviour_axes: Dict[str, float] = {}
         for name, engagement in canonical_entries.items():
             weight = engagement.kg_weight
             weight *= _affinity_factor(engagement.affinity)
@@ -179,12 +180,39 @@ class SimulationEngine:
 
         downstream_nodes = dict(REFERENCE_DOWNSTREAM_NODES or {"CREB": 0.18, "BDNF": 0.09, "mTOR": 0.05})
         trkb_facilitation = request.assumptions.get("trkB_facilitation", request.regimen == "chronic")
+        mu_opioid_bonding = request.assumptions.get("mu_opioid_bonding", False)
+        a2a_d2_heteromer = request.assumptions.get("a2a_d2_heteromer", False)
+        alpha2c_gate = request.assumptions.get("alpha2c_gate", False)
         if trkb_facilitation:
             downstream_nodes["BDNF"] = downstream_nodes.get("BDNF", 0.1) * 1.35
             downstream_nodes["mTOR"] = downstream_nodes.get("mTOR", 0.05) * 1.25
             downstream_nodes["CREB"] = downstream_nodes.get("CREB", 0.18) * 1.15
             behaviour_axes["social_affiliation"] = behaviour_axes.get("social_affiliation", 0.0) + 0.15
             behaviour_axes["motivation"] = behaviour_axes.get("motivation", 0.0) + 0.12
+        if mu_opioid_bonding:
+            downstream_nodes["OXYTOCIN"] = downstream_nodes.get("OXYTOCIN", 0.06) * 1.4
+            downstream_nodes["ENKEPHALIN"] = downstream_nodes.get("ENKEPHALIN", 0.05) * 1.3
+            weights_profile = get_receptor_weights("MOR-BONDING")
+            for axis, axis_weight in weights_profile.items():
+                delta = 0.5 * axis_weight
+                behaviour_axes[axis] = behaviour_axes.get(axis, 0.0) + delta
+                assumption_behaviour_axes[axis] = assumption_behaviour_axes.get(axis, 0.0) + delta
+        if a2a_d2_heteromer:
+            downstream_nodes["DARPP32"] = downstream_nodes.get("DARPP32", 0.07) * 1.25
+            downstream_nodes["CAMP"] = downstream_nodes.get("CAMP", 0.05) * 1.2
+            weights_profile = get_receptor_weights("A2A-D2-HETEROMER")
+            for axis, axis_weight in weights_profile.items():
+                delta = 0.45 * axis_weight
+                behaviour_axes[axis] = behaviour_axes.get(axis, 0.0) + delta
+                assumption_behaviour_axes[axis] = assumption_behaviour_axes.get(axis, 0.0) + delta
+        if alpha2c_gate:
+            downstream_nodes["HCN"] = downstream_nodes.get("HCN", 0.05) * 1.18
+            downstream_nodes["GIRK"] = downstream_nodes.get("GIRK", 0.04) * 1.22
+            weights_profile = get_receptor_weights("ADRA2C")
+            for axis, axis_weight in weights_profile.items():
+                delta = 0.4 * axis_weight
+                behaviour_axes[axis] = behaviour_axes.get(axis, 0.0) + delta
+                assumption_behaviour_axes[axis] = assumption_behaviour_axes.get(axis, 0.0) + delta
         alpha2a_gate = request.assumptions.get("alpha2a_hcn_closure", False)
         if alpha2a_gate or "ADRA2A" in canonical_entries:
             behaviour_axes["cognitive_flexibility"] = behaviour_axes.get("cognitive_flexibility", 0.0) + 0.18
@@ -253,9 +281,18 @@ class SimulationEngine:
         if trkb_facilitation:
             serotonin_drive *= 1.08
             dopamine_drive *= 1.05
+        if mu_opioid_bonding:
+            serotonin_drive *= 1.02
+            noradrenaline_drive *= 0.98
+        if a2a_d2_heteromer:
+            dopamine_drive *= 1.04
+            serotonin_drive *= 1.01
         if alpha2a_gate:
             noradrenaline_drive *= 1.1
             dopamine_drive *= 0.95
+        if alpha2c_gate:
+            noradrenaline_drive *= 1.05
+            dopamine_drive *= 0.97
 
         serotonin_drive = float(np.clip(serotonin_drive, -1.0, 1.0))
         dopamine_drive = float(np.clip(dopamine_drive, -1.0, 1.0))
@@ -281,6 +318,10 @@ class SimulationEngine:
             coupling_baseline += 0.05
         if alpha2a_gate:
             coupling_baseline += 0.03
+        if a2a_d2_heteromer:
+            coupling_baseline += 0.04
+        if alpha2c_gate:
+            coupling_baseline += 0.02
 
         circuit_params = CircuitParameters(
             regions=base_regions,
@@ -393,6 +434,8 @@ class SimulationEngine:
         }
         if request.assumptions:
             module_summaries["assumptions"] = dict(request.assumptions)
+        if assumption_behaviour_axes:
+            module_summaries["assumption_axes"] = assumption_behaviour_axes
         if region_scalars:
             module_summaries["region_exposure_scalars"] = region_scalars
         if behaviour_axes:

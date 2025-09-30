@@ -18,6 +18,9 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
   const [pvtWeight, setPvtWeight] = useState(0.5)
   const [trkB, setTrkB] = useState(true)
   const [alpha2a, setAlpha2a] = useState(false)
+  const [muBonding, setMuBonding] = useState(false)
+  const [a2aD2, setA2aD2] = useState(false)
+  const [alpha2c, setAlpha2c] = useState(false)
 
   useEffect(() => {
     if (!effects?.length) {
@@ -98,6 +101,9 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
       assumptions: {
         trkB_facilitation: Boolean(trkB),
         alpha2a_hcn_closure: Boolean(alpha2a),
+        mu_opioid_bonding: Boolean(muBonding),
+        a2a_d2_heteromer: Boolean(a2aD2),
+        alpha2c_gate: Boolean(alpha2c),
       },
     })
   }
@@ -186,14 +192,47 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
             <input type="checkbox" checked={gutBias} onChange={(event) => setGutBias(event.target.checked)} />
             <span>Gut-brain bias</span>
           </label>
-          <label className="toggle">
-            <input type="checkbox" checked={trkB} onChange={(event) => setTrkB(event.target.checked)} />
-            <span>Enable TrkB plasticity</span>
-          </label>
-          <label className="toggle">
-            <input type="checkbox" checked={alpha2a} onChange={(event) => setAlpha2a(event.target.checked)} />
-            <span>α2A HCN closure</span>
-          </label>
+          <div className="assumption-section">
+            <h4>Advanced circuit assumptions</h4>
+            <p className="assumption-note">
+              Toggle heuristic pathways to explore alternative microcircuit hypotheses and bonding motifs.
+            </p>
+            <div className="assumption-control">
+              <label className="toggle">
+                <input type="checkbox" checked={trkB} onChange={(event) => setTrkB(event.target.checked)} />
+                <span>Enable TrkB plasticity</span>
+              </label>
+              <p className="toggle-description">Boosts BDNF/TrkB nodes to capture chronic facilitation of synaptic plasticity.</p>
+            </div>
+            <div className="assumption-control">
+              <label className="toggle">
+                <input type="checkbox" checked={alpha2a} onChange={(event) => setAlpha2a(event.target.checked)} />
+                <span>α2A HCN closure</span>
+              </label>
+              <p className="toggle-description">Models α2A-driven HCN channel closure for prefrontal working-memory stabilization.</p>
+            </div>
+            <div className="assumption-control">
+              <label className="toggle">
+                <input type="checkbox" checked={muBonding} onChange={(event) => setMuBonding(event.target.checked)} />
+                <span>μ-opioid bonding module</span>
+              </label>
+              <p className="toggle-description">Amplifies social affiliation via hedonic hotspots, oxytocin spillover and enkephalinergic drive.</p>
+            </div>
+            <div className="assumption-control">
+              <label className="toggle">
+                <input type="checkbox" checked={a2aD2} onChange={(event) => setA2aD2(event.target.checked)} />
+                <span>A2A–D2 heteromer priming</span>
+              </label>
+              <p className="toggle-description">Engages A2A/D2 heteromer weights to bias ventral striatal exploration and salience gating.</p>
+            </div>
+            <div className="assumption-control">
+              <label className="toggle">
+                <input type="checkbox" checked={alpha2c} onChange={(event) => setAlpha2c(event.target.checked)} />
+                <span>α2C cortical gate</span>
+              </label>
+              <p className="toggle-description">Introduces α2C-mediated dampening of stress arousal while tightening thalamo-cortical gain.</p>
+            </div>
+          </div>
           <label>
             Dosing regime
             <select value={dosing} onChange={(event) => setDosing(event.target.value)} data-testid="dosing-select">

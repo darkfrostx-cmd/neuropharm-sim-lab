@@ -11,6 +11,14 @@ is not to capture every nuance of receptor pharmacology but to
 provide a realistic but tractable model that can be tuned and
 extended.
 
+Alongside canonical receptors we also expose a few "composite" nodes
+that correspond to optional model assumptions (e.g. μ-opioid bonding
+microcircuits or A2A–D2 heteromer facilitation).  These entries allow
+the simulation engine – and the ingestion pipeline that surfaces
+supporting evidence – to reason about the behavioural footprint of the
+assumption toggles without special-casing them elsewhere in the code
+base.
+
 The high level metrics considered by the simulation are:
 
 ``drive``
@@ -188,6 +196,20 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
         },
         "description": "μ-opioid receptor; hedonic hotspot engagement promotes social bonding, warmth and motivation; antagonism blunts attachment and reward sensitivity.",
     },
+    "MOR-BONDING": {
+        "weights": {
+            "drive": 0.25,
+            "apathy": -0.4,
+            "motivation": 0.3,
+            "cognitive_flexibility": 0.08,
+            "anxiety": -0.32,
+            "sleep_quality": 0.12,
+            "social_affiliation": 0.75,
+            "exploration": 0.22,
+            "salience": -0.08,
+        },
+        "description": "Composite node capturing μ-opioid driven social bonding (periaqueductal grey and nucleus accumbens hedonic hotspots) with downstream oxytocin/enkephalin release.",
+    },
     "A2A": {
         "weights": {
             "drive": -0.2,
@@ -215,6 +237,20 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
             "salience": 0.28,
         },
         "description": "A2A–D2 heteromer integrating adenosine and dopamine tone; stabilises motivational gating and shapes goal-directed exploration in ventral striatum.",
+    },
+    "A2A-D2-HETEROMER": {
+        "weights": {
+            "drive": 0.28,
+            "apathy": -0.28,
+            "motivation": 0.34,
+            "cognitive_flexibility": 0.2,
+            "anxiety": -0.12,
+            "sleep_quality": 0.08,
+            "social_affiliation": 0.18,
+            "exploration": 0.42,
+            "salience": 0.34,
+        },
+        "description": "Composite ventral striatal A2A–D2 heteromer node used when enabling the heteromer facilitation assumption; emphasises exploration bias and salience weighting via DARPP-32 and cAMP cascades.",
     },
     "ACh-BLA": {
         "weights": {
@@ -271,6 +307,20 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
             "salience": -0.08,
         },
         "description": "α2A-adrenergic receptor; engages PFC HCN channel closure to stabilise working memory and top-down control while tempering exploratory drive.",
+    },
+    "ADRA2C": {
+        "weights": {
+            "drive": 0.08,
+            "apathy": -0.18,
+            "motivation": 0.16,
+            "cognitive_flexibility": 0.28,
+            "anxiety": -0.22,
+            "sleep_quality": 0.12,
+            "social_affiliation": 0.1,
+            "exploration": -0.22,
+            "salience": -0.05,
+        },
+        "description": "α2C-adrenergic receptor; cortico-striatal gate dampening excessive norepinephrine tone while tightening thalamo-cortical gain control during stress states.",
     },
     # You can extend this dictionary with additional receptors or neuromodulators.
 }
@@ -357,6 +407,13 @@ def canonical_receptor_name(name: str) -> str:
         "ADRA2A": "ADRA2A",
         "ALPHA2A": "ADRA2A",
         "ADRENALPHA2A": "ADRA2A",
+        "MUOPIOIDBONDING": "MOR-BONDING",
+        "MORBONDED": "MOR-BONDING",
+        "MORBONING": "MOR-BONDING",
+        "A2AD2HETEROMER": "A2A-D2-HETEROMER",
+        "ADRA2C": "ADRA2C",
+        "ALPHA2C": "ADRA2C",
+        "ALPHA2CGATE": "ADRA2C",
     }
     if compact_no_dash in alias_map:
         target = alias_map[compact_no_dash]
