@@ -1,7 +1,12 @@
 # Simulation backends that require platform-specific dependencies.
-# Install selectively when you need the PySB/OSP Suite/TVB integrations.
-pysb>=1.13.0
-tvb-library>=2.8.0
+# Install selectively when you need the PySB/OSPSuite/TVB integrations.
+pysb>=1.15.0
+tvb-library>=2.10.0
+pythonnet>=3.0.3; platform_system != "Windows"
+
+# The OSPSuite Python API is distributed via Azure Artifacts. Provide either
+# `OSPSUITE_INDEX_URL` (extra index) or `OSPSUITE_WHEEL_URL` when running
+# `scripts/install_mechanistic_backends.sh` to download the official wheel.
 
 # Causal inference add-ons for counterfactual diagnostics.
 dowhy>=0.11.1

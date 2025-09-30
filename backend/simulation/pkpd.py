@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, Mapping
 
 import numpy as np
@@ -50,6 +50,8 @@ class PKPDProfile:
     brain_concentration: npt.NDArray[np.float64]
     summary: Dict[str, float | str | Dict[str, list[float]]]
     uncertainty: Dict[str, float]
+    backend: str
+    fallbacks: tuple[str, ...] = ()
 
 
 def _resolve_ospsuite_project_path() -> str:
@@ -126,7 +128,14 @@ def _simulate_with_ospsuite(params: PKPDParameters, time: npt.NDArray[np.float64
         "pkpd": float(max(0.05, 1.0 - np.clip(params.kg_confidence, 0.0, 1.0))),
         "exposure": float(max(0.05, 1.0 - np.clip(params.kg_confidence, 0.0, 1.0) * 0.9)),
     }
-    return PKPDProfile(timepoints=time, plasma_concentration=plasma, brain_concentration=brain, summary=summary, uncertainty=uncertainty)
+    return PKPDProfile(
+        timepoints=time,
+        plasma_concentration=plasma,
+        brain_concentration=brain,
+        summary=summary,
+        uncertainty=uncertainty,
+        backend="ospsuite",
+    )
 
 
 def _two_compartment_model(params: PKPDParameters) -> PKPDProfile:
@@ -205,6 +214,7 @@ def _two_compartment_model(params: PKPDParameters) -> PKPDProfile:
         brain_concentration=brain,
         summary=summary,
         uncertainty=uncertainty,
+        backend="analytic",
     )
 
 
@@ -282,6 +292,7 @@ def _two_compartment_ivp(params: PKPDParameters) -> PKPDProfile:
         brain_concentration=brain,
         summary=summary,
         uncertainty=uncertainty,
+        backend="scipy",
     )
 
 
@@ -293,21 +304,33 @@ def simulate_pkpd(params: PKPDParameters) -> PKPDProfile:
     if backend == "analytic":
         prefer_ospsuite = False
 
+    fallbacks: list[str] = []
+
     if prefer_ospsuite and HAS_OSPSUITE:
         try:
             time = np.arange(0.0, params.simulation_hours + max(params.time_step, 1e-3), max(params.time_step, 1e-3))
-            return _simulate_with_ospsuite(params, time)
+            profile = _simulate_with_ospsuite(params, time)
+            return profile
         except Exception as exc:  # pragma: no cover - optional path
             LOGGER.debug("OSPSuite backend unavailable (%s); falling back to SciPy integrator", exc)
+            fallbacks.append(f"ospsuite:{exc.__class__.__name__}")
 
     if backend in {"scipy", "high_fidelity"}:
-        return _two_compartment_ivp(params)
+        profile = _two_compartment_ivp(params)
+        if fallbacks:
+            return replace(profile, fallbacks=tuple(fallbacks))
+        return profile
 
     try:
-        return _two_compartment_ivp(params)
+        profile = _two_compartment_ivp(params)
+        if fallbacks:
+            return replace(profile, fallbacks=tuple(fallbacks))
+        return profile
     except Exception as exc:  # pragma: no cover - defensive path
         LOGGER.debug("SciPy PK/PD integrator failed (%s); falling back to analytic solver", exc)
-        return _two_compartment_model(params)
+        fallbacks.append(f"scipy:{exc.__class__.__name__}")
+        profile = _two_compartment_model(params)
+        return replace(profile, fallbacks=tuple(fallbacks))
 
 
 __all__ = ["PKPDParameters", "PKPDProfile", "simulate_pkpd", "HAS_OSPSUITE"]

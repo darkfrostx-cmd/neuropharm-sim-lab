@@ -65,6 +65,16 @@ This roadmap translates the outstanding blueprint gaps into concrete, staged wor
 - Continuous integration (CI) job runs mechanistic simulations on at least one hosted runner each week.
 - Users can opt into or out of heavy toolchains via configuration without code changes.
 
+### Solver capability matrix
+
+| Layer        | Primary backend (default) | High-fidelity backend | Fallbacks surfaced via `/simulate` | Notes |
+|--------------|---------------------------|-----------------------|------------------------------------|-------|
+| Molecular cascade | SciPy ODE integrator with analytic guard rails | PySB via `pysb` if installed | PySB import/runtime errors fall back to SciPy and are reported under `engine.fallbacks.molecular` | Controlled through the `MOLECULAR_SIM_BACKEND` environment variable. |
+| PK/PD        | Two-compartment IVP model (`scipy.integrate`) | OSPSuite Python API (requires Azure Artifacts wheel) | When OSPSuite is unavailable the engine records `ospsuite:<error>` and retains deterministic trajectories. | Provide `OSPSUITE_INDEX_URL`/`OSPSUITE_WHEEL_URL` at install time to opt in. |
+| Circuit      | SciPy-based network solver | The Virtual Brain (`tvb-library`) | Failed TVB runs cascade to SciPy with annotated fallback entries. | `CIRCUIT_SIM_BACKEND` toggles between analytic, SciPy, or TVB modes. |
+
+Every `/simulate` response now includes an `engine.backends` map and a `engine.fallbacks` dictionary so the cockpit and downstream analytics can display which solver executed and whether guard rails fired.
+
 ### Dependencies & Notes
 - Evaluate licensing and distribution constraints for OSPSuite within published containers.
 - Coordinate with infrastructure teams to size graphics processing unit (GPU)/central processing unit (CPU) requirements for production deployments.

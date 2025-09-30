@@ -110,6 +110,8 @@ class EngineResult:
     module_summaries: Dict[str, Any]
     confidence: Dict[str, float]
     behavioral_tags: Dict[str, Dict[str, Any]]
+    executed_backends: Dict[str, str]
+    fallbacks: Dict[str, tuple[str, ...]]
 
 
 
@@ -456,6 +458,21 @@ class SimulationEngine:
         if behavioral_tags:
             module_summaries["behavioral_tags"] = behavioral_tags
 
+        executed_backends = {
+            "molecular": molecular_result.backend,
+            "pkpd": pkpd_profile.backend,
+            "circuit": circuit_response.backend,
+        }
+        fallbacks = {
+            key: value
+            for key, value in {
+                "molecular": molecular_result.fallbacks,
+                "pkpd": pkpd_profile.fallbacks,
+                "circuit": circuit_response.fallbacks,
+            }.items()
+            if value
+        }
+
         return EngineResult(
             scores=scores,
             timepoints=timepoints.astype(float).tolist(),
@@ -463,6 +480,8 @@ class SimulationEngine:
             module_summaries=module_summaries,
             confidence=confidence,
             behavioral_tags=behavioral_tags,
+            executed_backends=executed_backends,
+            fallbacks=fallbacks,
         )
 
     @staticmethod

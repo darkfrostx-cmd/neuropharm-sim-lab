@@ -67,6 +67,8 @@ class MolecularCascadeResult:
     node_activity: Dict[str, npt.NDArray[np.float64]]
     summary: Dict[str, float | str]
     uncertainty: Dict[str, float]
+    backend: str
+    fallbacks: tuple[str, ...] = ()
 
 
 def _aggregate_receptor_effect(params: MolecularCascadeParams) -> float:
@@ -204,6 +206,7 @@ def simulate_cascade(params: MolecularCascadeParams) -> MolecularCascadeResult:
     backend = os.environ.get("MOLECULAR_SIM_BACKEND", "").lower()
     activity: Dict[str, npt.NDArray[np.float64]]
     backend_label = "analytic"
+    fallbacks: list[str] = []
     if backend != "analytic" and Model is not None:
         try:
             activity = _simulate_with_pysb(params, receptor_effect, time)
@@ -212,6 +215,7 @@ def simulate_cascade(params: MolecularCascadeParams) -> MolecularCascadeResult:
             LOGGER.debug("PySB cascade failed (%s); falling back to analytic backend", exc)
             activity = _simulate_scipy(params, receptor_effect, time)
             backend_label = "scipy"
+            fallbacks.append(f"pysb:{exc.__class__.__name__}")
     elif backend in {"scipy", "high_fidelity"}:
         activity = _simulate_scipy(params, receptor_effect, time)
         backend_label = "scipy"
@@ -222,6 +226,7 @@ def simulate_cascade(params: MolecularCascadeParams) -> MolecularCascadeResult:
         except Exception as exc:  # pragma: no cover - defensive path
             LOGGER.debug("SciPy cascade fallback failed (%s); using analytic solution", exc)
             activity = _simulate_analytic(params, receptor_effect, time)
+            fallbacks.append(f"scipy:{exc.__class__.__name__}")
 
     stacked = np.vstack(list(activity.values()))
     mean_activity = stacked.mean(axis=0)
@@ -255,6 +260,8 @@ def simulate_cascade(params: MolecularCascadeParams) -> MolecularCascadeResult:
         node_activity=activity,
         summary=summary,
         uncertainty=uncertainty,
+        backend=backend_label,
+        fallbacks=tuple(fallbacks),
     )
 
 

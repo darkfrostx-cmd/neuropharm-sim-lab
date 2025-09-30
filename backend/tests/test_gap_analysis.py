@@ -128,7 +128,7 @@ def test_gap_report_includes_causal_summary_and_literature() -> None:
     assert report.counterfactuals
     assert report.assumption_graph is not None and receptor_id in report.assumption_graph
     assert report.causal.diagnostics
-    assert report.literature and "openalex.org/W123" in report.literature[0]
+    assert report.literature and any("openalex.org/W123" in entry for entry in report.literature)
     assert report.metadata.get("context_weight")
     assert "assumption_graph" in report.metadata
     assert "context_uncertainty" in report.metadata

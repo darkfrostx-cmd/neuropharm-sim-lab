@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Dict, Mapping, Sequence, Tuple
 
 import numpy as np
@@ -56,6 +56,8 @@ class CircuitResponse:
     region_activity: Dict[str, npt.NDArray[np.float64]]
     global_metrics: Dict[str, float | str]
     uncertainty: Dict[str, float]
+    backend: str
+    fallbacks: tuple[str, ...] = ()
 
 
 def _simulate_with_tvb(params: CircuitParameters, time: npt.NDArray[np.float64]) -> CircuitResponse:
@@ -141,7 +143,13 @@ def _simulate_with_tvb(params: CircuitParameters, time: npt.NDArray[np.float64])
     kg_conf = float(np.clip(params.kg_confidence, 0.0, 1.0))
     uncertainty = {"network": float(max(0.05, 1.0 - kg_conf))}
 
-    return CircuitResponse(timepoints=time, region_activity=region_activity, global_metrics=summary, uncertainty=uncertainty)
+    return CircuitResponse(
+        timepoints=time,
+        region_activity=region_activity,
+        global_metrics=summary,
+        uncertainty=uncertainty,
+        backend="tvb",
+    )
 
 
 def _simulate_analytic(params: CircuitParameters, time: npt.NDArray[np.float64]) -> CircuitResponse:
@@ -185,7 +193,13 @@ def _simulate_analytic(params: CircuitParameters, time: npt.NDArray[np.float64])
     kg_conf = float(np.clip(params.kg_confidence, 0.0, 1.0))
     uncertainty = {"network": float(max(0.05, 1.0 - kg_conf))}
 
-    return CircuitResponse(timepoints=time, region_activity=region_activity, global_metrics=summary, uncertainty=uncertainty)
+    return CircuitResponse(
+        timepoints=time,
+        region_activity=region_activity,
+        global_metrics=summary,
+        uncertainty=uncertainty,
+        backend="analytic",
+    )
 
 
 def _simulate_with_scipy(params: CircuitParameters, time: npt.NDArray[np.float64]) -> CircuitResponse:
@@ -250,7 +264,13 @@ def _simulate_with_scipy(params: CircuitParameters, time: npt.NDArray[np.float64
     kg_conf = float(np.clip(params.kg_confidence, 0.0, 1.0))
     uncertainty = {"network": float(max(0.05, 1.0 - kg_conf * 0.95))}
 
-    return CircuitResponse(timepoints=time, region_activity=region_activity, global_metrics=summary, uncertainty=uncertainty)
+    return CircuitResponse(
+        timepoints=time,
+        region_activity=region_activity,
+        global_metrics=summary,
+        uncertainty=uncertainty,
+        backend="scipy",
+    )
 
 
 def simulate_circuit_response(params: CircuitParameters) -> CircuitResponse:
@@ -265,20 +285,31 @@ def simulate_circuit_response(params: CircuitParameters) -> CircuitResponse:
     if backend == "analytic":
         prefer_tvb = False
 
+    fallbacks: list[str] = []
+
     if prefer_tvb and HAS_TVB:
         try:
             return _simulate_with_tvb(params, time)
         except Exception as exc:  # pragma: no cover - optional path
             LOGGER.debug("TVB backend unavailable (%s); falling back to analytic integrator", exc)
+            fallbacks.append(f"tvb:{exc.__class__.__name__}")
 
     if backend in {"scipy", "high_fidelity"}:
-        return _simulate_with_scipy(params, time)
+        response = _simulate_with_scipy(params, time)
+        if fallbacks:
+            return replace(response, fallbacks=tuple(fallbacks))
+        return response
 
     try:
-        return _simulate_with_scipy(params, time)
+        response = _simulate_with_scipy(params, time)
+        if fallbacks:
+            return replace(response, fallbacks=tuple(fallbacks))
+        return response
     except Exception as exc:  # pragma: no cover - defensive path
         LOGGER.debug("SciPy circuit solver failed (%s); falling back to analytic response", exc)
-        return _simulate_analytic(params, time)
+        fallbacks.append(f"scipy:{exc.__class__.__name__}")
+        response = _simulate_analytic(params, time)
+        return replace(response, fallbacks=tuple(fallbacks))
 
 
 __all__ = ["CircuitParameters", "CircuitResponse", "simulate_circuit_response", "HAS_TVB"]
