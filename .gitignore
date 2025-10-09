@@ -1,0 +1,19 @@
+# Python cache directories
+__pycache__/
+*.py[cod]
+
+# Local virtual environments
+.venv/
+
+# Node modules and build artefacts
+node_modules/
+frontend/build/
+frontend/.cache/
+
+# Editor state
+.vscode/
+.idea/
+.DS_Store
+
+# Generated telemetry cache
+.cache/

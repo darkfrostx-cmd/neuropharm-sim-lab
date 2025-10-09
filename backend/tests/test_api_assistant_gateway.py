@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
+
+os.environ.setdefault("GRAPH_AUTO_BOOTSTRAP", "0")
 
 from backend.main import app
 

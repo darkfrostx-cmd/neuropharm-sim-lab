@@ -44,6 +44,7 @@ class BiolinkPredicate(str, Enum):
     LOCATED_IN = "biolink:located_in"
     ASSOCIATED_WITH = "biolink:associated_with"
     PART_OF = "biolink:part_of"
+    POSITIVELY_REGULATES = "biolink:positively_regulates"
 
 
 PREFIX_PATTERNS: dict[BiolinkEntity, tuple[str, ...]] = {

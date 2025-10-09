@@ -13,6 +13,7 @@ from ..config import (
     VectorStoreConfig,
 )
 from ..reasoning import CausalEffectEstimator, CausalSummary
+from .gap_state import ResearchQueueEntry, ResearchQueueStore
 from .gaps import EmbeddingConfig, EmbeddingGapFinder, GapReport, RotatEGapFinder
 from .ingest_openalex import OpenAlexClient  # type: ignore
 from .models import Edge, Evidence, Node
@@ -33,6 +34,15 @@ class EvidenceSummary:
 
     edge: Edge
     evidence: List[Evidence]
+
+
+@dataclass(slots=True)
+class SimilarityResult:
+    """Embedding similarity result returned by the vector store."""
+
+    node: Node
+    score: float
+    metadata: Dict[str, object]
 
 
 class GraphService:
@@ -65,6 +75,7 @@ class GraphService:
         self._literature_client = literature_client
         self._literature = literature
         self._label_cache: Dict[str, str] = {}
+        self._research_queue = ResearchQueueStore()
 
     def _create_store(self, config: GraphConfig) -> GraphStore:
         primary = self._create_single_store(config.primary)
@@ -145,6 +156,98 @@ class GraphService:
     def persist(self, nodes: Iterable[Node], edges: Iterable[Edge]) -> None:
         self.store.upsert_nodes(nodes)
         self.store.upsert_edges(edges)
+
+    def similarity_search(
+        self,
+        *,
+        node_id: str | None = None,
+        vector: Sequence[float] | None = None,
+        top_k: int = 5,
+    ) -> List[SimilarityResult]:
+        if node_id is None and vector is None:
+            raise ValueError("Either 'node_id' or 'vector' must be provided")
+        namespace = getattr(self._gap_finder, "_vector_namespace", "graph_nodes")
+        query_vector: Sequence[float]
+        metadata: Dict[str, object] = {}
+        if vector is not None:
+            query_vector = vector
+            metadata["source"] = "request"
+        else:
+            record = self.vector_store.get(namespace, str(node_id))
+            if record is None:
+                raise KeyError(node_id)
+            query_vector = record.vector
+            metadata = dict(record.metadata)
+        records = self.vector_store.query(namespace, query_vector, top_k=top_k + (1 if node_id else 0))
+        results: List[SimilarityResult] = []
+        for candidate in records:
+            if node_id and candidate.id == node_id:
+                continue
+            try:
+                node = self.store.get_node(candidate.id)
+            except Exception:
+                continue
+            if node is None:
+                continue
+            score = candidate.score if candidate.score is not None else 0.0
+            merged_meta = dict(metadata)
+            merged_meta.update(candidate.metadata or {})
+            results.append(SimilarityResult(node=node, score=float(score), metadata=merged_meta))
+            if len(results) >= top_k:
+                break
+        return results
+
+    # ------------------------------------------------------------------
+    # Research queue helpers
+    # ------------------------------------------------------------------
+    def list_research_queue(self) -> List[ResearchQueueEntry]:
+        return self._research_queue.list()
+
+    def enqueue_research_item(
+        self,
+        *,
+        subject: str,
+        predicate: BiolinkPredicate,
+        object_: str,
+        reason: str,
+        author: str,
+        priority: int = 2,
+        watchers: Iterable[str] | None = None,
+        metadata: Dict[str, object] | None = None,
+    ) -> ResearchQueueEntry:
+        return self._research_queue.enqueue(
+            subject=subject,
+            predicate=predicate,
+            object_=object_,
+            reason=reason,
+            author=author,
+            priority=priority,
+            watchers=watchers,
+            metadata=metadata,
+        )
+
+    def update_research_item(
+        self,
+        entry_id: str,
+        *,
+        actor: str,
+        status: str | None = None,
+        priority: int | None = None,
+        add_watchers: Iterable[str] | None = None,
+        remove_watchers: Iterable[str] | None = None,
+        comment: str | None = None,
+        metadata: Dict[str, object] | None = None,
+    ) -> ResearchQueueEntry:
+        return self._research_queue.update(
+            entry_id,
+            actor=actor,
+            status=status,
+            priority=priority,
+            add_watchers=add_watchers,
+            remove_watchers=remove_watchers,
+            comment=comment,
+            metadata=metadata,
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers

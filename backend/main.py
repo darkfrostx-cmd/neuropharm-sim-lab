@@ -10,9 +10,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .api import configure_services, router as api_router
+from .config import DEFAULT_TELEMETRY_CONFIG
 from .graph.ingest_runner import bootstrap_graph
 from .graph.service import GraphService
 from .simulation import GraphBackedReceptorAdapter, SimulationEngine
+from .telemetry import configure_telemetry
 
 
 API_DESCRIPTION = """
@@ -39,7 +41,11 @@ except FileNotFoundError:
     RECEPTOR_REFS = {}
 
 
+telemetry = configure_telemetry(DEFAULT_TELEMETRY_CONFIG)
+
+
 app = FastAPI(title="Neuropharm Simulation API", description=API_DESCRIPTION)
+telemetry.instrument_app(app)
 
 
 origins = os.environ.get("CORS_ORIGINS", "https://darkfrostx-cmd.github.io").split(",")

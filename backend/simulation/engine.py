@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from contextlib import contextmanager
 from typing import Any, Dict, Mapping, MutableMapping, Literal
 
 import numpy as np
@@ -12,6 +13,29 @@ from .circuit import CircuitParameters, simulate_circuit_response
 from .molecular import MolecularCascadeParams, simulate_cascade
 from .pkpd import PKPDParameters, simulate_pkpd
 from .assets import load_reference_connectivity, load_reference_pathway
+
+try:  # pragma: no cover - optional dependency
+    from opentelemetry import trace
+except Exception:  # pragma: no cover - optional dependency
+    trace = None  # type: ignore[assignment]
+
+
+_TRACER = trace.get_tracer(__name__) if trace is not None else None
+
+
+@contextmanager
+def _telemetry_span(name: str, attributes: Mapping[str, object] | None = None):
+    if _TRACER is None:
+        yield None
+        return
+    with _TRACER.start_as_current_span(name) as span:  # pragma: no cover - telemetry passthrough
+        if attributes:
+            for key, value in attributes.items():
+                try:
+                    span.set_attribute(key, value)
+                except Exception:
+                    continue
+        yield span
 
 Mechanism = Literal["agonist", "antagonist", "partial", "inverse"]
 
@@ -129,18 +153,32 @@ class SimulationEngine:
     def run(self, request: EngineRequest) -> EngineResult:
         """Execute the multi-layer simulation."""
 
+        attributes = {
+            "simulation.regimen": request.regimen,
+            "simulation.time_step": float(self.time_step),
+            "simulation.receptor_count": len(request.receptors),
+            "simulation.assumption_count": len(request.assumptions),
+        }
+        with _telemetry_span("simulation.run", attributes):
+            return self._execute_run(request)
+
+    def _execute_run(self, request: EngineRequest) -> EngineResult:
         horizon = 24.0 if request.regimen == "acute" else 24.0 * 7
         timepoints = np.arange(0.0, horizon + self.time_step, self.time_step)
 
-        canonical_entries: Dict[str, ReceptorEngagement] = {}
-        for provided_name, engagement in request.receptors.items():
-            canonical_name = canonical_receptor_name(provided_name or engagement.name)
-            normalised = replace(engagement, name=canonical_name)
-            existing = canonical_entries.get(canonical_name)
-            if existing is None:
-                canonical_entries[canonical_name] = normalised
-            else:
-                canonical_entries[canonical_name] = self._merge_engagements(existing, normalised)
+        with _telemetry_span(
+            "simulation.normalise_receptors",
+            {"input.count": len(request.receptors)},
+        ):
+            canonical_entries: Dict[str, ReceptorEngagement] = {}
+            for provided_name, engagement in request.receptors.items():
+                canonical_name = canonical_receptor_name(provided_name or engagement.name)
+                normalised = replace(engagement, name=canonical_name)
+                existing = canonical_entries.get(canonical_name)
+                if existing is None:
+                    canonical_entries[canonical_name] = normalised
+                else:
+                    canonical_entries[canonical_name] = self._merge_engagements(existing, normalised)
         receptor_states: Dict[str, float] = {
             name: engagement.occupancy for name, engagement in canonical_entries.items()
         }
@@ -228,7 +266,11 @@ class SimulationEngine:
             stimulus=1.2 if request.regimen == "chronic" else 1.0,
             timepoints=timepoints,
         )
-        molecular_result = simulate_cascade(molecular_params)
+        with _telemetry_span(
+            "simulation.molecular",
+            {"receptor.count": len(receptor_states)},
+        ):
+            molecular_result = simulate_cascade(molecular_params)
 
         avg_occ = float(np.mean(list(receptor_states.values()) or [0.0]))
         dose_mg = 50.0 * max(0.25, avg_occ)
@@ -246,7 +288,8 @@ class SimulationEngine:
             simulation_hours=horizon,
             time_step=self.time_step,
         )
-        pkpd_profile = simulate_pkpd(pkpd_params)
+        with _telemetry_span("simulation.pkpd", {"dose_mg": dose_mg}):
+            pkpd_profile = simulate_pkpd(pkpd_params)
 
         region_curves_raw = pkpd_profile.summary.get("region_brain_concentration", {})
         region_curves: Dict[str, list[float]] = {}
@@ -338,7 +381,11 @@ class SimulationEngine:
             coupling_baseline=coupling_baseline,
             kg_confidence=mean_evidence,
         )
-        circuit_response = simulate_circuit_response(circuit_params)
+        with _telemetry_span(
+            "simulation.circuit",
+            {"region.count": len(base_regions)},
+        ):
+            circuit_response = simulate_circuit_response(circuit_params)
 
         def _score_from_index(index: float, invert: bool = False) -> float:
             centred = 50.0 + 100.0 * (index - 0.5)

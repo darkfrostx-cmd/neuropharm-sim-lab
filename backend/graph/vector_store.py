@@ -47,6 +47,9 @@ class BaseVectorStore:
     ) -> List[VectorRecord]:  # pragma: no cover - interface
         raise NotImplementedError
 
+    def get(self, namespace: str, record_id: str) -> VectorRecord | None:  # pragma: no cover - interface
+        raise NotImplementedError
+
 
 class InMemoryVectorStore(BaseVectorStore):
     """Simple cosine-similarity implementation for tests and local runs."""
@@ -70,9 +73,16 @@ class InMemoryVectorStore(BaseVectorStore):
         scored: List[Tuple[float, VectorRecord]] = []
         for record in bucket.values():
             similarity = self._cosine_similarity(query_vec, record.vector)
+            record.score = similarity
             scored.append((similarity, record))
         scored.sort(key=lambda item: item[0], reverse=True)
         return [record for _, record in scored[:top_k]]
+
+    def get(self, namespace: str, record_id: str) -> VectorRecord | None:
+        bucket = self._store.get(namespace)
+        if not bucket:
+            return None
+        return bucket.get(record_id)
 
     @staticmethod
     def _cosine_similarity(vec_a: Sequence[float], vec_b: Sequence[float]) -> float:
@@ -93,7 +103,7 @@ class SqliteVectorStore(BaseVectorStore):
         self.path = Path(path)
         if not self.path.parent.exists():
             self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.path)
+        self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
@@ -165,12 +175,28 @@ class SqliteVectorStore(BaseVectorStore):
                         id=str(record_id),
                         vector=stored_vector,
                         metadata=dict(metadata),
-                        score=score_val,
+                        score=similarity,
                     ),
                 )
             )
         scored.sort(key=lambda item: item[0], reverse=True)
         return [record for _, record in scored[:top_k]]
+
+    def get(self, namespace: str, record_id: str) -> VectorRecord | None:
+        with self._conn:
+            row = self._conn.execute(
+                "SELECT vector, metadata, score FROM vectors WHERE namespace = ? AND id = ?",
+                (namespace, record_id),
+            ).fetchone()
+        if not row:
+            return None
+        vector_json, metadata_json, score_val = row
+        try:
+            vector = tuple(float(x) for x in json.loads(vector_json))
+        except Exception:
+            return None
+        metadata = json.loads(metadata_json) if metadata_json else {}
+        return VectorRecord(id=record_id, vector=vector, metadata=dict(metadata), score=score_val)
 
 
 class PgVectorStore(BaseVectorStore):  # pragma: no cover - optional dependency
@@ -266,6 +292,7 @@ class PgVectorStore(BaseVectorStore):  # pragma: no cover - optional dependency
             self._conn.commit()
 
     def query(self, namespace: str, vector: Sequence[float], *, top_k: int = 10) -> List[VectorRecord]:
+        query_vec = tuple(float(x) for x in vector)
         with self._conn.cursor() as cur:  # type: ignore[arg-type]
             statement = sql.SQL(
                 "SELECT id, embedding, metadata, score FROM {}.{}"
@@ -273,24 +300,44 @@ class PgVectorStore(BaseVectorStore):  # pragma: no cover - optional dependency
                 " ORDER BY embedding <-> %s"
                 " LIMIT %s"
             ).format(sql.Identifier(self._schema), sql.Identifier(self._table))
-            cur.execute(statement, (namespace, list(vector), top_k))
+            cur.execute(statement, (namespace, list(query_vec), top_k))
             rows = cur.fetchall()
         results: List[VectorRecord] = []
         for row in rows:
             record_id: str = row[0]
-            embedding: Sequence[float] = row[1]
+            embedding_raw: Sequence[float] = row[1]
             metadata_raw = row[2] or {}
             score_val = row[3]
             metadata = metadata_raw if isinstance(metadata_raw, dict) else json.loads(metadata_raw)
+            embedding = tuple(float(x) for x in embedding_raw)
+            similarity = InMemoryVectorStore._cosine_similarity(query_vec, embedding)
             results.append(
                 VectorRecord(
                     id=record_id,
-                    vector=tuple(float(x) for x in embedding),
+                    vector=embedding,
                     metadata=dict(metadata),
-                    score=score_val,
+                    score=similarity if similarity >= 0 else score_val,
                 )
             )
         return results
+
+    def get(self, namespace: str, record_id: str) -> VectorRecord | None:
+        with self._conn.cursor() as cur:  # type: ignore[arg-type]
+            statement = sql.SQL(
+                "SELECT embedding, metadata, score FROM {}.{} WHERE namespace = %s AND id = %s"
+            ).format(sql.Identifier(self._schema), sql.Identifier(self._table))
+            cur.execute(statement, (namespace, record_id))
+            row = cur.fetchone()
+        if not row:
+            return None
+        embedding, metadata_raw, score_val = row
+        metadata = metadata_raw if isinstance(metadata_raw, dict) else json.loads(metadata_raw or "{}")
+        return VectorRecord(
+            id=record_id,
+            vector=tuple(float(x) for x in embedding),
+            metadata=dict(metadata),
+            score=score_val,
+        )
 
 
 

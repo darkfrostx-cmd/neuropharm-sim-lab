@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Iterable, Mapping, Sequence, Literal
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Mapping, Sequence, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, root_validator
 
 from ..atlas import AtlasCoordinate as DomainAtlasCoordinate
 from ..atlas import AtlasOverlay as DomainAtlasOverlay
@@ -16,8 +16,13 @@ from ..graph.evidence_quality import (
     EvidenceQualityBreakdown,
     EvidenceQualityScorer,
 )
+from ..graph.gap_state import ResearchQueueEntry as DomainResearchQueueEntry
+from ..graph.gap_state import TriageComment as DomainTriageComment
 from ..graph.models import BiolinkPredicate, Edge, Evidence, Node
 from ..reasoning import CausalSummary, CounterfactualScenario
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from ..graph.service import SimilarityResult
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +521,101 @@ class GapResponse(BaseModel):
     items: Sequence[GapDescriptor]
 
 
+class ResearchQueueComment(BaseModel):
+    author: str
+    body: str
+    created_at: datetime
+
+    @classmethod
+    def from_domain(cls, comment: DomainTriageComment) -> "ResearchQueueComment":
+        return cls(author=comment.author, body=comment.body, created_at=comment.created_at)
+
+
+class ResearchQueueItem(BaseModel):
+    id: str
+    subject: str
+    object: str
+    predicate: BiolinkPredicate
+    status: str
+    priority: int = Field(ge=1, le=5)
+    watchers: Sequence[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    comments: Sequence[ResearchQueueComment] = Field(default_factory=list)
+    history: Sequence[Dict[str, Any]] = Field(default_factory=list)
+
+    @classmethod
+    def from_domain(cls, entry: DomainResearchQueueEntry) -> "ResearchQueueItem":
+        return cls(
+            id=entry.id,
+            subject=entry.subject,
+            object=entry.object,
+            predicate=entry.predicate,
+            status=entry.status,
+            priority=entry.priority,
+            watchers=list(entry.watchers),
+            created_at=entry.created_at,
+            updated_at=entry.updated_at,
+            metadata=dict(entry.metadata),
+            comments=[ResearchQueueComment.from_domain(comment) for comment in entry.comments],
+            history=[dict(event) for event in entry.history],
+        )
+
+
+class ResearchQueueListResponse(BaseModel):
+    items: Sequence[ResearchQueueItem]
+
+
+class ResearchQueueCreateRequest(BaseModel):
+    subject: str = Field(..., description="Gap subject identifier")
+    object: str = Field(..., description="Gap object identifier")
+    predicate: BiolinkPredicate
+    reason: str = Field(..., description="Initial triage note")
+    author: str = Field(..., description="User creating the entry")
+    priority: int = Field(default=2, ge=1, le=5)
+    watchers: Sequence[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ResearchQueueUpdateRequest(BaseModel):
+    actor: str = Field(..., description="User applying the update")
+    status: str | None = Field(default=None)
+    priority: int | None = Field(default=None, ge=1, le=5)
+    add_watchers: Sequence[str] = Field(default_factory=list)
+    remove_watchers: Sequence[str] = Field(default_factory=list)
+    comment: str | None = Field(default=None)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SimilaritySearchRequest(BaseModel):
+    node_id: str | None = Field(default=None, description="Node identifier to seed similarity search")
+    vector: Sequence[float] | None = Field(default=None, description="Raw embedding to query against")
+    top_k: int = Field(default=5, ge=1, le=25)
+
+    @root_validator(pre=True)
+    def _validate_target(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        node_id = values.get("node_id")
+        vector = values.get("vector")
+        if (node_id is None or str(node_id).strip() == "") and not vector:
+            raise ValueError("Either 'node_id' or 'vector' must be supplied")
+        return values
+
+
+class SimilarityHit(BaseModel):
+    node: GraphNode
+    score: float = Field(ge=-1.0, le=1.0)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_domain(cls, result: "SimilarityResult") -> "SimilarityHit":
+        return cls(node=GraphNode.from_domain(result.node), score=result.score, metadata=result.metadata)
+
+
+class SimilaritySearchResponse(BaseModel):
+    query: Dict[str, Any]
+    results: Sequence[SimilarityHit]
+
 class AssistantAction(str, Enum):
     """Canonical verbs recognised by the assistant aggregation endpoint."""
 
@@ -526,6 +626,7 @@ class AssistantAction(str, Enum):
     SIMULATE = "simulate"
     EXPLAIN = "explain"
     FIND_GAPS = "find_gaps"
+    SIMILARITY_SEARCH = "similarity_search"
 
 
 class AssistantRequest(BaseModel):
@@ -584,6 +685,14 @@ __all__ = [
     "GapDescriptor",
     "GapRequest",
     "GapResponse",
+    "ResearchQueueComment",
+    "ResearchQueueItem",
+    "ResearchQueueListResponse",
+    "ResearchQueueCreateRequest",
+    "ResearchQueueUpdateRequest",
+    "SimilaritySearchRequest",
+    "SimilarityHit",
+    "SimilaritySearchResponse",
     "GraphEdge",
     "GraphExpandRequest",
     "GraphExpandResponse",

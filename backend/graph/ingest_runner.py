@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import Iterator as TypingIterator, List, Mapping
 
 from .ingest_base import BaseIngestionJob, IngestionReport
 from .ingest_atlases import AllenAtlasIngestion, EBrainsAtlasIngestion
@@ -20,9 +21,30 @@ from .models import BiolinkEntity, BiolinkPredicate, Edge, Evidence, Node
 from .persistence import GraphStore, InMemoryGraphStore
 from .service import GraphService
 
+try:  # pragma: no cover - optional dependency
+    from opentelemetry import trace
+except Exception:  # pragma: no cover - optional dependency
+    trace = None  # type: ignore[assignment]
+
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_SEED_PATH = Path(__file__).with_suffix("").with_name("data") / "seed_graph.json"
+_TRACER = trace.get_tracer(__name__) if trace is not None else None
+
+
+@contextmanager
+def _telemetry_span(name: str, attributes: Mapping[str, object] | None = None):
+    if _TRACER is None:
+        yield None
+        return
+    with _TRACER.start_as_current_span(name) as span:  # pragma: no cover - telemetry passthrough
+        if attributes:
+            for key, value in attributes.items():
+                try:
+                    span.set_attribute(key, value)
+                except Exception:
+                    continue
+        yield span
 
 
 @dataclass(slots=True)
@@ -79,11 +101,12 @@ def load_seed_graph(graph_service: GraphService, seed_path: Path | None = None) 
     if not path.exists():
         LOGGER.info("Seed graph file not found at %s", path)
         return False
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        LOGGER.warning("Failed to load seed graph at %s: %s", path, exc)
-        return False
+    with _telemetry_span("ingest.load_seed_graph", {"seed_path": str(path)}):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            LOGGER.warning("Failed to load seed graph at %s: %s", path, exc)
+            return False
 
     nodes: List[Node] = []
     edges: List[Edge] = []
@@ -159,30 +182,40 @@ def execute_jobs(
     reports: List[IngestionReport] = []
     store = graph_service.store
     for job in jobs:
-        report = IngestionReport(name=job.name)
-        try:
-            iterator: Iterable[dict] = job.fetch(limit=limit)
-        except Exception as exc:  # pragma: no cover - network failure / optional deps
-            LOGGER.warning("Failed to fetch records for %s: %s", job.name, exc)
-            if strict:
-                raise
-            continue
-        try:
-            for idx, record in enumerate(iterator if isinstance(iterator, Iterator) else iter(iterator)):
-                nodes, edges = job.transform(record)
-                if nodes or edges:
-                    graph_service.persist(nodes, edges)
-                report.records_processed += 1
-                report.nodes_created += len(nodes)
-                report.edges_created += len(edges)
-                if limit is not None and report.records_processed >= limit:
-                    break
-        except Exception as exc:  # pragma: no cover - transformation failure
-            LOGGER.warning("Ingestion job %s failed: %s", job.name, exc)
-            if strict:
-                raise
-            continue
-        reports.append(report)
+        with _telemetry_span("ingest.job", {"job.name": job.name}):
+            report = IngestionReport(name=job.name)
+            try:
+                iterator: Iterable[dict] = job.fetch(limit=limit)
+            except Exception as exc:  # pragma: no cover - network failure / optional deps
+                LOGGER.warning("Failed to fetch records for %s: %s", job.name, exc)
+                if strict:
+                    raise
+                continue
+            try:
+                iterable: TypingIterator[dict]
+                if isinstance(iterator, Iterator):
+                    iterable = iterator  # type: ignore[assignment]
+                else:
+                    iterable = iter(iterator)
+                for idx, record in enumerate(iterable):
+                    with _telemetry_span(
+                        "ingest.job.record",
+                        {"job.name": job.name, "record.index": idx},
+                    ):
+                        nodes, edges = job.transform(record)
+                        if nodes or edges:
+                            graph_service.persist(nodes, edges)
+                        report.records_processed += 1
+                        report.nodes_created += len(nodes)
+                        report.edges_created += len(edges)
+                        if limit is not None and report.records_processed >= limit:
+                            break
+            except Exception as exc:  # pragma: no cover - transformation failure
+                LOGGER.warning("Ingestion job %s failed: %s", job.name, exc)
+                if strict:
+                    raise
+                continue
+            reports.append(report)
     return reports
 
 
@@ -208,16 +241,23 @@ def bootstrap_graph(
         LOGGER.debug("Graph store already populated; bootstrap skipped")
         return []
 
-    if use_seed and load_seed_graph(graph_service, seed_path=seed_path):
-        return []
-
     jobs = list(plan.jobs) if plan else _default_jobs()
     if not jobs:
         LOGGER.warning("No ingestion jobs available for bootstrap")
         return []
 
     limit = plan.limit if plan else None
-    reports = execute_jobs(graph_service, jobs, limit=limit, strict=strict)
+    with _telemetry_span(
+        "ingest.bootstrap",
+        {
+            "job.count": len(jobs),
+            "use_seed": bool(use_seed),
+            "strict": bool(strict),
+        },
+    ):
+        if use_seed:
+            load_seed_graph(graph_service, seed_path=seed_path)
+        reports = execute_jobs(graph_service, jobs, limit=limit, strict=strict)
     LOGGER.info("Completed bootstrap ingestion with %d job(s)", len(reports))
     return reports
 

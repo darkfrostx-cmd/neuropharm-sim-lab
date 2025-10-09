@@ -8,6 +8,9 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types"
   },
+  "dependencies": {
+    "@opentelemetry/api": "^1.8.0"
+  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240529.0",
     "wrangler": "^3.53.1"
