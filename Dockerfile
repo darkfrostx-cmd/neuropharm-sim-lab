@@ -3,12 +3,13 @@
 FROM python:3.10-slim AS builder
 
 # system libs for SciPy/NumPy/TVB/PySB (no ATLAS on Debian trixie)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
     build-essential gfortran cmake pkg-config git \
     libopenblas-dev liblapack-dev \
     libgsl-dev libffi-dev libssl-dev libhdf5-dev \
     mono-runtime \
-  && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 RUN python -m pip install --upgrade pip setuptools wheel
 
@@ -33,12 +34,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 # system libs for SciPy/NumPy/TVB/PySB (no ATLAS on Debian trixie)
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
     build-essential gfortran cmake pkg-config git \
     libopenblas-dev liblapack-dev \
     libgsl-dev libffi-dev libssl-dev libhdf5-dev \
     mono-runtime \
-  && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
