@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Mapping, Sequence, Literal
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Mapping, Sequence, Literal, Optional
 
-from pydantic import BaseModel, Field, root_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from ..atlas import AtlasCoordinate as DomainAtlasCoordinate
 from ..atlas import AtlasOverlay as DomainAtlasOverlay
@@ -258,11 +258,30 @@ class CausalDiagnostics(BaseModel):
 class EvidenceSearchRequest(BaseModel):
     """Input filters for the evidence search endpoint."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     subject: str | None = Field(default=None, description="Subject CURIE")
     predicate: BiolinkPredicate | None = Field(default=None)
-    object_: str | None = Field(default=None, alias="object")
+    object_: Optional[str] = Field(default=None, description="Object CURIE")
     page: int = Field(default=1, ge=1)
     size: int = Field(default=25, ge=1, le=100)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lift_object_alias(cls, data: Any) -> Any:
+        if isinstance(data, Mapping) and "object" in data and "object_" not in data:
+            working = dict(data)
+            working["object_"] = working.pop("object")
+            return working
+        return data
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler, info):  # type: ignore[override]
+        payload = handler(self)
+        if info.by_alias and "object_" in payload:
+            payload = dict(payload)
+            payload["object"] = payload.pop("object_")
+        return payload
 
 
 class EvidenceSearchResponse(BaseModel):
@@ -399,6 +418,8 @@ class ReceptorSpec(BaseModel):
 
 
 class SimulationAssumptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     trkB_facilitation: bool = Field(
         default=False,
         description="Enable BDNF/TrkB plasticity facilitation cascade",
@@ -431,10 +452,6 @@ class SimulationAssumptions(BaseModel):
         default=False,
         description="Activate vasopressin-mediated threat gating loops",
     )
-
-    class Config:
-        extra = "forbid"
-
 
 class SimulationRequest(BaseModel):
     receptors: Mapping[str, ReceptorSpec]
@@ -473,7 +490,7 @@ class BehavioralTagAnnotation(BaseModel):
     label: str
     domain: str | None = None
     rdoc: ControlledTerm | None = None
-    cogatlas: ControlledTerm | None = Field(default=None, alias="cogatlas")
+    cogatlas: ControlledTerm | None = None
 
 
 class SimulationResponse(BaseModel):
@@ -674,7 +691,7 @@ class SimilaritySearchRequest(BaseModel):
     vector: Sequence[float] | None = Field(default=None, description="Raw embedding to query against")
     top_k: int = Field(default=5, ge=1, le=25)
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def _validate_target(cls, values: Dict[str, Any]) -> Dict[str, Any]:
         node_id = values.get("node_id")
         vector = values.get("vector")
