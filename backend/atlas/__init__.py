@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Mapping, Optional, Set
+from typing import TYPE_CHECKING, Dict, Iterable, List, Mapping, Optional, Set
 
-from ..graph.ingest_atlases import AllenAtlasClient, EBrainsAtlasClient
 from ..graph.models import Node
 from ..graph.service import GraphService
 from .assets import load_hcp_reference, load_julich_reference
+
+if TYPE_CHECKING:  # pragma: no cover - imported for type checking only
+    from ..graph.ingest_atlases import AllenAtlasClient, EBrainsAtlasClient
 
 
 ALLEN_ANNOTATION_URL = (
@@ -185,20 +187,28 @@ class AtlasOverlayService:
         self,
         graph_service: GraphService,
         *,
-        allen_client: AllenAtlasClient | None = None,
-        ebrains_client: EBrainsAtlasClient | None = None,
+        allen_client: "AllenAtlasClient | None" = None,
+        ebrains_client: "EBrainsAtlasClient | None" = None,
         hcp_reference: dict | None = None,
         julich_reference: dict | None = None,
     ) -> None:
         self.graph_service = graph_service
-        try:
-            self._allen = allen_client or AllenAtlasClient()
-        except Exception:
+        if allen_client is not None:
             self._allen = allen_client
-        try:
-            self._ebrains = ebrains_client or EBrainsAtlasClient()
-        except Exception:
+        else:
+            try:
+                from ..graph.ingest_atlases import AllenAtlasClient as _AllenAtlasClient
+                self._allen = _AllenAtlasClient()
+            except Exception:
+                self._allen = None
+        if ebrains_client is not None:
             self._ebrains = ebrains_client
+        else:
+            try:
+                from ..graph.ingest_atlases import EBrainsAtlasClient as _EBrainsAtlasClient
+                self._ebrains = _EBrainsAtlasClient()
+            except Exception:
+                self._ebrains = None
         self._hcp_reference = hcp_reference or load_hcp_reference()
         self._julich_reference = julich_reference or load_julich_reference()
 

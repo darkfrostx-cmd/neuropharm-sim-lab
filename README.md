@@ -1,194 +1,109 @@
 # Neuropharm Simulation Lab
 
-The Neuropharm Simulation Lab couples a FastAPI knowledge graph backend with a
-Vite/React analytics cockpit. The UI blends top-down atlas views (NiiVue), graph
-neighbourhood navigation (Cytoscape) and bottom-up force projections to surface
-receptor provenance, uncertainty and simulation outputs in one place.
+The Neuropharm Simulation Lab pairs a FastAPI knowledge-graph backend with a React
+cockpit for exploring how neurotransmitter receptors combine to influence
+behavioural outcomes. The stack ships with a pre-seeded evidence graph and a
+mechanistic simulation engine so you can try ideas immediately—no external
+services required.
 
-The evidence backbone ingests ChEMBL, BindingDB, IUPHAR and the PDSP Ki dataset
-out of the box, keeping ligand–receptor affinities and provenance cards close to
-the simulation layer. Each ingestion job now normalises study metadata (species,
-chronicity, and design) so the new evidence quality scorer can surface
-human/animal splits and regimen context alongside the raw measurements.
-
-## What lives where
-
-```
-neuropharm-sim-lab/
-├── backend/
-│   ├── api/                  # REST endpoints wired to graph + simulation services
-│   ├── engine/               # Core receptor weight tables and helper utilities
-│   ├── graph/                # Knowledge-graph store, evidence lookups and gaps logic
-│   ├── simulation/           # PK/PD + circuit orchestration scaffolding
-│   ├── requirements.txt      # Lean, Linux-friendly dependency set
-│   ├── requirements-optional.txt  # Legacy pin set for manual installs
-│   └── pyproject.toml        # Installable package with optional simulation extras
-├── frontend/
-│   ├── src/                  # React components, hooks and styles
-│   ├── tests/e2e/            # Playwright end-to-end coverage
-│   └── playwright.config.ts  # Browser automation configuration
-├── render.yaml               # Render.com deployment recipe for the backend API
-└── README.md
-```
-
-## Quickstart
-
-### 1. Backend API
+## Quick tour for the impatient
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r backend/requirements.txt
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
+python -m backend.quickstart
 ```
 
-The base requirements now ship with the Neo4j (5.x) and python-arango clients so
-managed Aura and Oasis endpoints work without extra installs.
+The `backend.quickstart` helper runs a full simulation locally, prints a plain
+English summary, and lists the knowledge graph sources that informed each
+receptor weight. Use `python -m backend.quickstart --list-presets` to see the
+built-in receptor mixes or add your own receptors on the fly, e.g.
+`python -m backend.quickstart --receptor 5HT1A=0.7:agonist --receptor 5HT2A=0.2:antagonist`.
 
-#### Programmatic assistant gateway
+A step-by-step walkthrough with screenshots lives in
+[`docs/getting-started-layman.md`](docs/getting-started-layman.md).
 
-Custom GPTs and other agent-style clients can call the API through a single
-entrypoint without hand-coding each workflow. Two new endpoints surface the
-available actions and execute them on behalf of the caller:
+## Run the live API
 
-```text
-GET  /assistant/capabilities   # Lists supported actions + JSON Schemas
-POST /assistant/execute        # Dispatches an action with a validated payload
-```
+1. **Create an environment**
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r backend/requirements.txt
+   ```
+2. **Start the server**
+   ```bash
+   uvicorn backend.main:app --host 0.0.0.0 --port 8000
+   ```
+   The first boot automatically loads the seed graph stored in
+   `backend/graph/data/seed_graph.json`. Visit `http://localhost:8000/docs` for
+   an interactive OpenAPI explorer.
+3. **Optional extras** – enable heavier simulation add-ons as needed:
+   ```bash
+   pip install -e backend[mechanistic]  # PySB, OSPSuite, TVB toolkits
+   pip install -e backend[text-mining]  # Semantic Scholar + requests helpers
+   pip install -e backend[causal]       # DoWhy/EconML counterfactuals
+   ```
 
-For example, predicting receptor evidence reduces to:
+### Notable API capabilities
 
-```bash
-curl -X POST http://localhost:8000/assistant/execute \
-  -H "Content-Type: application/json" \
-  -d '{
-        "action": "predict_effects",
-        "payload": {"receptors": [{"name": "5HT1A"}]}
-      }'
-```
+- **Assistant gateway** – `GET /assistant/capabilities` lists available actions
+  and payload schemas for agent integrations. `POST /assistant/execute` runs an
+  action for you, wrapping the underlying REST call and response.
+- **Evidence explorer** – `POST /evidence/search` returns supporting studies for
+  a subject/predicate/object triple. Evidence quality scores blend species,
+  chronicity and design metadata so the most relevant items float to the top.
+- **Simulation endpoint** – `POST /simulate` orchestrates molecular, PK/PD and
+  circuit models. Responses include behavioural scores, confidence bands and
+  receptor context.
+- **Gap finder** – `POST /gaps` ranks missing edges between focus nodes and
+  suggests literature leads to close them.
 
-The response bundles the underlying REST endpoint, a normalised payload and the
-result body so agent frameworks can reason over inputs and outputs with minimal
-custom code. This gateway works transparently behind the provided Cloudflare
-Worker proxy and can be deployed to a FastAPI-ready Hugging Face Space by
-pointing `app = backend.main.app` inside your Space entry script.
+### Observability hooks
 
-#### Observability hooks
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_ENABLED=1` for the Cloudflare Worker)
+so the backend emits OpenTelemetry traces and metrics. Deployment metadata such
+as `service.name` and `deployment.environment` are populated automatically.
 
-The FastAPI backend and Cloudflare Worker now emit OpenTelemetry traces and
-metrics whenever the `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_ENABLED=1`) environment
-variable is provided. The helper in `backend/telemetry.py` instruments FastAPI,
-ingestion jobs, and the simulation pipeline, while the worker wraps cache hits
-and upstream proxy hops. Point the services at your collector of choice:
-
-```bash
-export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
-export TELEMETRY_ENABLED=1  # Cloudflare worker binding
-```
-
-Traces are labelled with deployment metadata (`service.name`,
-`deployment.environment`) to simplify multi-environment dashboards.
-
-#### Research queue and similarity APIs
-
-Collaborative triage now lives behind dedicated endpoints:
-
-```text
-GET  /research-queue             # list triage items with comments & watchers
-POST /research-queue             # enqueue or update a research item
-PATCH /research-queue/{entry_id} # update status, watchers or add comments
-POST /evidence/similarity        # pgvector-backed embedding similarity search
-```
-
-The new `/evidence/similarity` route uses the RotatE embeddings captured during
-gap ranking to surface related graph nodes (powered by SQLite in development and
-pgvector in production).
-
-The React cockpit ships with a `ResearchQueue` panel (`frontend/src/components/ResearchQueue.jsx`)
-that visualises the queue, allows inline status changes, watcher management and
-commenting, and renders an audit trail for each entry.
-
-The optional simulation toolkits (PySB, OSPSuite, TVB) pull heavy native wheels.
-Install them only when you need the full PK/PD stack:
-
-```bash
-pip install -e backend[mechanistic]
-```
-
-This extra now bundles ready-to-run assets in `backend/simulation/assets`:
-
-- `pysb_reference_pathway.json` (PySB): seeded with the HTR2A → ERK cascade so
-  full ODE integration kicks in automatically when PySB is present.
-- `pbpk_reference_project.json` (OSPSuite): a PBPK model that mirrors the analytic
-  fallback used by the default engine; install OSPSuite to run the full
-  compartmental simulation.
-- `tvb_reference_connectivity.json` (TVB): a lightweight structural connectome
-  used by the circuit module when the Virtual Brain stack is available.
-
-Users on the “free” stack can enable each backend independently:
-
-```bash
-pip install -e backend[text-mining]  # adds requests + optional scispaCy extras
-pip install -e backend[mechanistic]  # PySB + OSPSuite + TVB
-pip install -e backend[causal]       # DoWhy/EconML counterfactual diagnostics
-```
-
-Each extra extends the API responses transparently—counterfactual requests begin
-returning refutation diagnostics once the causal extra is installed, and the
-simulation endpoints automatically switch from the analytic fallback to the
-mechanistic engines when the corresponding toolkits are present.
-
-**Render fix:** Render will happily install the lean requirements, but PySB’s
-Fortran build chain fails on their default image. The included `render.yaml`
-forces Python 3.10 and pins the build command to `pip install -r
-backend/requirements.txt`, eliminating the broken optional wheel resolution. If
-you do want the full simulation layer on Render, provision a starter instance
-with the *Docker* stack and add system BLAS/LAPACK packages first.
-
-### 2. Frontend cockpit
+## Start the dashboard
 
 ```bash
 cd frontend
 npm install
-# Point the frontend at your API; defaults to same-origin
 echo "VITE_API_BASE_URL=http://localhost:8000" > .env.local
 npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
-### Evidence quality heuristics
+The Vite dev server proxies API calls to the backend URL in `.env.local`. When
+you change a receptor in the UI the app calls `/predict/effects`, `/simulate`,
+`/explain`, and `/gaps` behind the scenes while showing provenance badges, atlas
+views (NiiVue) and Cytoscape graph neighbourhoods.
 
-`backend/graph/evidence_quality.py` converts per-study annotations into weighted
-confidence metrics. Species, chronicity, study design and provenance signals are
-combined into a `total_score` that:
+## Project map
 
-- bumps human and chronic data above acute or non-human findings,
-- distinguishes in vivo/clinical designs from in vitro or in silico assays, and
-- rewards cited studies (PMID/DOI) over uncited snippets.
+```
+neuropharm-sim-lab/
+├── backend/
+│   ├── api/                  # REST endpoints wired to graph + simulation services
+│   ├── engine/               # Core receptor weights and helper utilities
+│   ├── graph/                # Knowledge-graph store, evidence lookups and gap logic
+│   ├── simulation/           # PK/PD + circuit orchestration scaffolding
+│   ├── quickstart.py         # CLI helper for layman-friendly simulations
+│   ├── requirements.txt      # Lean Python dependency set
+│   ├── requirements-optional.txt
+│   └── pyproject.toml        # Installable package with optional extras
+├── frontend/                 # Vite/React cockpit (Cytoscape + NiiVue integrations)
+├── docs/                     # Guides, deployment notes, and roadmap
+├── infra/                    # Hugging Face Space, Render, and vector-store helpers
+├── scripts/                  # Smoke tests and optional backend installers
+├── Dockerfile                # Backend container image used for Render and local runs
+└── render.yaml               # Render.com deployment recipe
+```
 
-The resulting metrics drive both the simulation adapter and the `/evidence/search`
-endpoint, where the API now returns `quality` summaries alongside each edge’s
-provenance list.
+## Quality checks
 
-Key features shipped by the React app:
-
-- **Atlas overlays (NiiVue):** the crosshair now anchors to true anatomical
-  centroids from the Allen Brain Atlas, and the viewer streams the official
-  10 µm CCF annotation volume plus EBRAINS surface meshes when available.
-  Hash-based fallbacks remain in place when no provenance is known.
-- **Graph neighbourhoods (Cytoscape + react-force-graph):** jump between
-  top-down Cytoscape layouts and a bottom-up force graph with shared selection
-  state.
-- **Evidence workbench:** provenance cards, uncertainty badges and explanation
-  trails for `/predict/effects` and `/explain` responses.
-- **Simulation cockpit:** occupancy sliders, mechanism selectors, regimen
-  toggles, chronic plasticity controls (TrkB facilitation, α2A HCN closure)
-  and a time cursor wired to `/simulate` outputs. Behavioural scores are now
-  annotated with RDoC and Cognitive Atlas identifiers so downstream analyses
-  can reuse standard vocabularies.
-
-### 3. Tests and checks
-
-Run the project guardrails after making changes:
+Run the guardrails before opening a pull request:
 
 ```bash
 python -m compileall backend/main.py
@@ -197,281 +112,18 @@ cd frontend
 npm test -- --watch=false
 ```
 
-`npm test` invokes both Vitest (unit) and Playwright (E2E) via a small wrapper
-script so CI and local runs behave the same way.
+`pytest` exercises the API, graph bootstrapper, simulation pipeline and the new
+quickstart CLI. `npm test` triggers the frontend unit tests; run it only if you
+modified the UI.
 
-## Automated literature text mining
+## Need more detail?
 
-OpenAlex ingestion now pipes works through a GROBID → scispaCy → INDRA-inspired
-pipeline.  The default configuration is intentionally light-weight—the
-`TextMiningPipeline` falls back to deterministic pattern matching when spaCy
-models are unavailable—yet the structure mirrors a production deployment:
+- [`docs/deployment-guide.md`](docs/deployment-guide.md) – Render and Cloudflare
+  Worker deployment playbooks.
+- [`docs/mcp-cli.md`](docs/mcp-cli.md) – how to wire the API into MCP/agent
+  clients.
+- [`docs/blueprint-alignment.md`](docs/blueprint-alignment.md) – domain roadmap
+  and research assumptions.
 
-1. PDFs are converted to TEI with the GROBID HTTP API (set `GROBID_URL` to point
-   at your instance).
-2. TEI text is parsed with scispaCy when the `en_core_sci_sm` model is installed,
-   otherwise a rule-based extractor looks for *activates/inhibits/modulates*
-   phrases. The extractor now uses dependency patterns, optional entity linking,
-   and in-process grounding to emit agent/target pairs with confidence scores.
-3. Candidate relations are first normalised into BEL/INDRA-style causal frames
-   before we persist them as Biolink edges, so each edge carries a
-   machine-readable relation type (Activation/Inhibition/etc.) and the assembly
-   frame identifier in its qualifiers.
-
-You can enable the richer NLP stack by installing scispaCy and the associated
-models:
-
-```bash
-pip install "spacy>=3.7.4,<3.8.0" "scispacy>=0.5.4"
-python -m spacy download en_core_sci_sm
-```
-
-Entity linking through the scispaCy knowledge base is optional.  When the linker
-is present the extractor records the top candidates under `agent_linking` and
-`target_linking` metadata.  Without it the pipeline still grounds mentions via
-the bundled resolver.
-
-Prefer dependency parsing when the model is available by leaving the default
-configuration untouched.  To force the regex fallback (useful for minimal test
-containers), pass a `TextMiningConfig` that disables the auto-loading behaviour:
-
-```python
-from backend.graph.text_mining import TextMiningConfig, TextMiningPipeline
-
-config = TextMiningConfig(prefer_scispacy=False)
-pipeline = TextMiningPipeline(config=config)
-```
-
-Point the ingestion orchestrator at a running GROBID container by exporting
-`GROBID_URL=http://localhost:8070` before executing the OpenAlex job.
-
-## Deployment notes
-
-### Graph connectivity environment variables
-
-Configure the graph driver through environment variables before deploying to
-Render, Cloudflare Workers or any other hosted stack. If you want a spoon-fed walkthrough for Render, Hugging Face Spaces, and the Cloudflare Worker, follow [`docs/deployment-guide.md`](docs/deployment-guide.md).
-
-```bash
-GRAPH_BACKEND=neo4j
-GRAPH_URI=neo4j+s://<neo4j-host>
-GRAPH_USERNAME=<neo4j-user>
-GRAPH_PASSWORD=<neo4j-password>
-
-# Optional database selector when your Aura tenancy exposes multiple DBs
-GRAPH_DATABASE=<neo4j-database>
-
-# Mirror a managed ArangoDB instance (e.g. Oasis) alongside Aura
-GRAPH_MIRROR_A_BACKEND=arangodb
-GRAPH_MIRROR_A_URI=https://<arango-host>
-GRAPH_MIRROR_A_DATABASE=<arango-database>
-GRAPH_MIRROR_A_USERNAME=<arango-user>
-GRAPH_MIRROR_A_PASSWORD=<arango-password>
-
-# Enable strict TLS verification when the mirror requires SNI/cert checks
-GRAPH_MIRROR_A_OPT_TLS=true
-```
-
-### GitHub Pages frontend
-
-`.github/workflows/deploy-frontend.yml` now builds the React bundle before
-publishing:
-
-```yaml
-- uses: actions/setup-node@v4
-  with:
-    node-version: '20'
-    cache: npm
-- run: cd frontend && npm ci && npm run build
-- uses: peaceiris/actions-gh-pages@v3
-  with:
-    publish_dir: frontend/dist
-```
-
-Enable Pages → GitHub Actions in your repository settings and pushes to `main`
-will redeploy automatically.
-
-### Render.com backend
-
-The new `render.yaml` captures the working configuration. Deploy by connecting
-the repo and selecting “Use existing `render.yaml`”. Render will:
-
-- Pin the runtime to Python 3.10 where the lean requirements have prebuilt
-  wheels.
-- Install only `backend/requirements.txt` to avoid the PySB/ospsuite build
-  failures shown in the earlier screenshots.
-- Launch Uvicorn with `backend.main:app` on the assigned `$PORT`.
-- Ship the Neo4j (`neo4j>=5.13.0`) and ArangoDB (`python-arango>=7.5.5`) drivers by
-  default so managed Aura and Oasis clusters work without extra installs. Aura
-  refuses older 4.x drivers, so keep the requirement on the 5.x line or newer.
-
-If you later need the optional toolkits, switch the service to the Docker stack
-or run the install step inside a job that preinstalls `gfortran`, `cmake` and
-`libblas-dev`.
-
-### Zero-cost edge + database stack
-
-You can run the full stack on free tiers by pairing the API with Cloudflare and
-serverless databases:
-
-1. **Graph storage (Neo4j + optional mirrors).** Point the backend at a free
-   [Neo4j Aura][aura] instance by setting `GRAPH_BACKEND=neo4j` and
-   `GRAPH_URI=neo4j+s://...`. Install the backend requirements so the Neo4j and
-   ArangoDB clients are available, then mirror writes to ArangoDB (or any
-   document store) with the existing mirror syntax:
-
-   ```bash
-   pip install -r backend/requirements.txt
-   export GRAPH_BACKEND=neo4j
-   export GRAPH_URI=neo4j+s://<your-host>
-   export GRAPH_USERNAME=<user>
-   export GRAPH_PASSWORD=<password>
-   export GRAPH_MIRROR_A_BACKEND=arangodb
-   export GRAPH_MIRROR_A_URI=https://<your-arango-host>
-   export GRAPH_MIRROR_A_DATABASE=brainos
-   ```
-
-   The bundled `python-arango>=7.5.5` release contains the TLS/SNI fixes that
-   ArangoDB Oasis and other managed offerings require. If you override the
-   version pin, keep it at 7.5 or newer so certificate negotiation succeeds.
-   `GraphConfig` automatically creates a composite store that keeps the Aura
-   graph and the Arango document view in sync.
-2. **Vector embeddings (Supabase/Neon).** Free [Supabase][supabase] and
-   [Neon][neon] projects expose pgvector-enabled Postgres instances. The helper
-   script in `infra/pgvector/bootstrap_pgvector.sh` provisions the extension and
-   baseline tables:
-
-   ```bash
-   export VECTOR_DB_URL="postgresql://user:pass@host:5432/postgres?sslmode=require"
-   ./infra/pgvector/bootstrap_pgvector.sh
-   ```
-
-   Copy the emitted variables (`VECTOR_DB_URL`, `VECTOR_DB_SCHEMA`,
-   `VECTOR_DB_TABLE`) into your deployment environment. The backend loads them
-   via `backend.config.VectorStoreConfig` and keeps them available for ingestion
-   jobs and Worker sidecars.
-3. **API via Cloudflare Workers.** The `wrangler.toml` at the repository root
-   points Wrangler at `worker/src/index.ts`, a lightweight proxy that forwards
-   requests to FastAPI, stores secrets in Workers KV and caches hot responses in
-   D1. To deploy manually:
-
-   ```bash
-   cd worker
-   npm install
-   npx wrangler kv:namespace create neuropharm-config
-   npx wrangler d1 create neuropharm-vector-cache
-   npx wrangler secret put API_BASE_URL   # e.g. https://your-render-service.onrender.com
-   npx wrangler secret put VECTOR_DB_URL  # optional, falls back to KV for reads
-   npx wrangler deploy --var API_BASE_URL:https://your-backend.example
-   ```
-
-   Store long-lived secrets (graph credentials, Postgres URLs) in the KV
-   namespace so the Worker can hydrate `API_BASE_URL` when the direct variable
-   is missing. The Worker exposes `GET /__worker/health` for quick diagnostics
-   and automatically persists cacheable JSON responses to the D1 database.
-4. **Frontend via Cloudflare Pages.** Build the React bundle and ship it to
-   Pages:
-
-   ```bash
-   cd frontend
-   npm ci
-   npm run build
-   npx wrangler pages deploy dist --project-name neuropharm-sim-lab
-   ```
-
-   Set `VITE_API_BASE_URL` to the public Worker URL so the frontend targets the
-   proxy instead of a direct Render instance.
-
-GitHub deployments are wired through `.github/workflows/deploy-cloudflare.yml`.
-Add the following repository secrets before enabling the workflow:
-
-| Secret | Purpose |
-| --- | --- |
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account identifier for Pages/Workers. |
-| `CLOUDFLARE_API_TOKEN` | Scoped token with `Pages` and `Workers KV/D1` permissions. |
-| `CLOUDFLARE_PAGES_PROJECT` | Name of the Pages project receiving the frontend build. |
-| `WORKER_API_BASE_URL` | Backend URL injected at deploy time (`wrangler deploy --var`). |
-| `VECTOR_DB_URL` | Connection string passed through to the Worker and backend. |
-
-The workflow builds the frontend, publishes it to Pages, installs the Worker
-dependencies and runs `wrangler deploy`. The `render.yaml` remains for teams
-already invested in Render, but the Cloudflare setup gives you an entirely free
-footprint for demos and day-to-day research.
-
-### Automated ingestion runs
-
-`backend/graph/cli.py` exposes the ingestion pipeline as a CLI:
-
-```bash
-python -m backend.graph.cli ingest --job ChEMBL --limit 100
-```
-
-Jobs honour cooldown windows via the new `IngestionOrchestrator`, and state is
-persisted to `backend/graph/data/ingestion_state.json`. A scheduled GitHub
-Action (`.github/workflows/ingestion.yml`) executes `python -m
-backend.graph.cli ingest --limit 50` every morning (UTC) so Aura/Arango mirrors
-stay fresh without manual intervention. Populate the following GitHub **Secrets**
-(Settings → *Secrets and variables* → *Actions*) so the workflow can
-authenticate against your managed graph instances:
-
-| Secret | Required? | Purpose |
-| --- | --- | --- |
-| `GRAPH_BACKEND` | Yes | Backend driver for the primary store (e.g. `neo4j`). |
-| `GRAPH_URI` | Yes | Connection string for Aura (`neo4j+s://<hostname>`) or another Neo4j cluster. |
-| `GRAPH_USERNAME` | Yes | Aura/Neo4j username with write access. |
-| `GRAPH_PASSWORD` | Yes | Matching password or generated token. |
-| `GRAPH_DATABASE` | Optional | Explicit database name when the cluster exposes multiple DBs. |
-| `GRAPH_OPT_TLS` | Optional | Set to `true` to force TLS verification when Aura requires strict cert checks. |
-| `GRAPH_MIRROR_A_BACKEND` | Optional | Backend identifier for the first mirror (e.g. `arangodb`). |
-| `GRAPH_MIRROR_A_URI` | Optional | Mirror connection URL such as `https://<arango-host>`. |
-| `GRAPH_MIRROR_A_DATABASE` | Optional | Target database within the mirror instance. |
-| `GRAPH_MIRROR_A_USERNAME` | Optional | Mirror user allowed to upsert nodes/edges. |
-| `GRAPH_MIRROR_A_PASSWORD` | Optional | Password for the mirror user. |
-| `GRAPH_MIRROR_A_OPT_TLS` | Optional | Set to `true` when the mirror enforces TLS/SNI validation. |
-
-Add additional `GRAPH_MIRROR_<NAME>_*` secrets if you replicate to more than
-one store; the ingestion CLI automatically discovers them during each run.
-
-After provisioning the secrets, trigger a staging dry-run from **Actions →
-Refresh knowledge graph → Run workflow**. The job output prints a summary for
-each ingestion plan (records processed, nodes created, edges created) so you can
-confirm that data lands in the persistent store before re-enabling the daily
-schedule. For local smoke tests you can export the same variables and run
-`python -m backend.graph.cli ingest --limit 25` to exercise the pipeline without
-waiting for GitHub Actions.
-
-[cf-pages]: https://developers.cloudflare.com/pages/
-[cf-workers]: https://developers.cloudflare.com/workers/
-[aura]: https://neo4j.com/cloud/aura/
-[supabase]: https://supabase.com
-[neon]: https://neon.tech
-
-## Frontend data hooks
-
-All React components talk to the backend through composable hooks in
-`src/hooks/apiHooks.js`:
-
-- `useGraphExpand` → `/graph/expand`
-- `usePredictEffects` → `/predict/effects`
-- `useExplain` → `/explain`
-- `useGapFinder` → `/gaps`
-- `useSimulation` → `/simulate`
-
-Each hook exposes `{ status, data, error, execute, reset }` so you can chain
-workflows (e.g. populate the simulation cockpit once the evidence cards arrive).
-Utility helpers also emit Cytoscape element lists and force-graph payloads from
-the shared response model.
-
-## Contributing
-
-Follow the guardrails documented in `AGENTS.md`:
-
-1. Keep commits focused and accompany code changes with relevant docs/tests.
-2. Run the compile step, `pytest`, and `npm test -- --watch=false` before
-   opening a PR.
-3. Document any optional dependency requirements when you extend the simulator
-   or graph ingestion stack.
-
-Questions or feedback? File an issue or start a discussion—new receptors,
-visual encodings, or ingestion jobs are always welcome.
-
+If anything is unclear, start with the layman guide linked above and then step
+into the API docs once you feel comfortable.
