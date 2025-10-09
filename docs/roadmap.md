@@ -19,9 +19,21 @@ This roadmap translates the outstanding blueprint gaps into concrete, staged wor
 - ⏳ **M2: INDRA-style assembly layer.** Baseline assembly exists, but roadmap follow-up will extend deduplication and provenance surfacing for larger corpora.【F:backend/graph/ingest_indra.py†L1-L140】
 - ⏳ **M3: Semantic Scholar ingestion.** Client scaffolding is present; enriching bibliometrics and citation graph features remains active work.【F:backend/graph/service.py†L320-L384】
 
+### Remaining gaps
+- **Assembly robustness.** Harden the INDRA assembly pass with multi-key deduplication, conflict resolution playbooks, provenance surfacing in the UI, and licensing checks for every upstream corpus.
+- **Bibliometric depth.** Expand Semantic Scholar ingestion with richer bibliometrics (cohort metadata, funding disclosures, MeSH terms), citation-network centrality metrics, and cross-repository alerting when new cohorts land.
+- **Operational hygiene.** Schedule recurring classifier retraining, publish contributor notebooks for the upgraded pipeline, and document the provenance of new signals alongside evaluation scorecards.
+
 ### Near-term focus
-- Expand bibliometric enrichment with citation-network features, cohort metadata, and study funding annotations to strengthen prioritisation signals.【F:docs/blueprint-alignment.md†L9-L40】
-- Schedule periodic classifier re-training/evaluation jobs and publish sample notebooks that show the upgraded pipeline on representative corpora.
+- Extend the INDRA-style assembly pass with deeper deduplication, provenance surfacing, and licensing reviews so downstream curators can trust merged statements at scale.
+- Expand bibliometric enrichment with citation-network features, cohort metadata, study funding annotations, and refreshed Semantic Scholar fields to strengthen prioritisation signals.【F:docs/blueprint-alignment.md†L9-L40】
+- Schedule recurring classifier retraining and evaluation jobs, publishing contributor notebooks that demonstrate the upgraded pipeline on representative corpora.
+- Wire ingestion freshness monitors into telemetry so regression dashboards highlight staleness before researchers notice gaps.
+
+### Delivery enablers
+- Draft an RFC that defines the evidence provenance schema (fields, storage, retention) and aligns it with the governance registry.
+- Pair with infrastructure to size storage and rate-limit requirements for the expanded Semantic Scholar pull jobs.
+- Capture triaged licensing questions (Semantic Scholar, publisher terms, public datasets) in the governance registry for weekly review.
 
 ### Dependencies & Notes
 - Confirm licensing of Semantic Scholar data for redistribution.
@@ -39,10 +51,22 @@ This roadmap translates the outstanding blueprint gaps into concrete, staged wor
 - ⏳ **M2: Mesh and volume processing.** Conversion tooling exists for current assets; future work should automate batch processing for the wider Julich/HCP repositories.
 - ⏳ **M3: Frontend registry.** The API surfaces overlays, but cockpit indicators for QA status/confidence remain to be built.
 
+### Remaining gaps
+- **Batch processing.** Automate mesh and volume conversion across Julich/HCP drops, documenting resampling strategies that keep large assets browser-friendly and versioned.
+- **QA visibility.** Expose cockpit QA indicators, provenance freshness, and download readiness so curators catch geometry drift early.【F:docs/blueprint-alignment.md†L41-L80】
+- **Coverage expansion.** Broaden volumetric coverage to include deep nuclei, cerebellar regions, and pediatric/adolescent variants prioritized in the blueprint.
+- **Submission workflow.** Publish contributor checklists (file formats, voxel size, QC thresholds) so community submissions align with automation pipelines.
+
 ### Next steps
-- Expose QA verdicts and provenance freshness within the cockpit to alert curators when geometry drifts.【F:docs/blueprint-alignment.md†L41-L80】
-- Broaden volumetric coverage to include deep nuclei and cerebellar regions prioritized in the blueprint.
-- Document resampling strategies to keep large meshes browser-friendly and coordinate with infrastructure on storage quotas.
+- Sequence mesh/volume automation alongside cockpit QA indicators so curators see asset freshness as soon as new batches land.
+- Capture the agreed resampling defaults—and the roadmap for deeper nuclei/cerebellar coverage—in the atlas contributor guide to unblock community submissions.
+- Stand up nightly smoke tests that render resampled assets in headless browsers to catch tiling and texture issues.
+- Coordinate with the frontend team on progressive loading strategies for oversized meshes, with fallback sprites documented for legacy browsers.
+
+### Delivery enablers
+- Align with infrastructure on object-storage lifecycle policies for large geometry assets and cost alerts.
+- Define QA data contracts so telemetry includes per-atlas checksum, bounding box, and coordinate frame metadata.
+- Socialise a joint backlog with the cockpit design team covering indicator placement, accessibility, and localisation requirements.
 
 ## Workstream 3 – High-Fidelity Simulation Defaults
 ### Objectives
@@ -50,10 +74,16 @@ This roadmap translates the outstanding blueprint gaps into concrete, staged wor
 2. Maintain analytic fallbacks while exposing capability detection in the UI.
 
 ### Milestones
-- **M1: Containerized toolchains.** Publish Docker images with preinstalled scientific stacks and system dependencies (Basic Linear Algebra Subprograms/Linear Algebra Package, BLAS/LAPACK) for backend workers.
+- **M1: Containerized toolchains.** Publish Docker images with preinstalled scientific stacks and system dependencies (Basic Linear Algebra Subprograms/Linear Algebra Package, BLAS/LAPACK) for backend workers, alongside reproducible packaging for the heavy solver stack.
 - ✅ **M2: Feature toggles in API responses.** `/simulate` now includes backend/fallback metadata so cockpit controls and telemetry can reflect the executing solver.【F:backend/simulation/engine.py†L218-L502】【F:backend/api/routes.py†L212-L420】
-- **M3: Continuous benchmarks.** Automate regression tests comparing analytic versus mechanistic outputs on reference scenarios.
+- **M3: Continuous benchmarks.** Automate regression tests comparing analytic versus mechanistic outputs on reference scenarios and calibrate cohort defaults against social-behavioural reference studies.
 - ✅ **M4: Documentation refresh.** README and deployment guides explain how to enable PySB/OSPSuite/TVB stacks locally and in hosted environments.【F:README.md†L78-L176】【F:docs/deployment-guide.md†L1-L170】
+
+### Remaining gaps
+- **Toolchain packaging.** Publish containerised toolchains (PySB, OSPSuite, TVB) with reproducible packaging for the heavy solver stack, GPU/CPU sizing guidance, and hosted deployment runbooks.
+- **Benchmark automation.** Stand up automated analytic-vs-mechanistic regression benchmarks with calibrated cohort defaults informed by social-behaviour studies and animal model references.
+- **Cross-scale validation.** Extend benchmarking to cross-scale social-behaviour reference tasks and document defaults inside the blueprint follow-up RFC for reproducible hand-off and reviewer sign-off.
+- **Reproducible hand-offs.** Provide sample workspace exports (conda lockfiles, Docker compose stacks) so external collaborators can rerun reference simulations without bespoke setup.
 
 ### Success Criteria
 - Continuous integration (CI) job runs mechanistic simulations on at least one hosted runner each week.
@@ -83,10 +113,21 @@ Every `/simulate` response now includes an `engine.backends` map and a `engine.f
 - ✅ **Collaboration foundation.** Research queue endpoints now support assignments, due dates, watcher management, checklists, and audit logs surfaced through the cockpit.【F:backend/graph/gap_state.py†L1-L220】【F:backend/api/routes.py†L330-L420】【F:backend/tests/test_api_integration.py†L150-L240】
 - ⏳ **UX depth.** Priority scoring and inline document readers remain on the roadmap; design exploration and analytics instrumentation are pending.
 
+### Remaining gaps
+- **Decision support.** Ship priority scoring, inline readers, and telemetry-driven analytics that keep curators inside the cockpit and quantify review impact.
+- **User research.** Run UX research on prioritisation controls, inline evidence readers, collaboration loops, and accessibility requirements before expanding the UI.
+- **Integrations.** Build downstream integrations (for example, ticketing webhooks, Slack digests) once the collaboration surface stabilises and governance reviews pass.
+- **Training content.** Package onboarding guides and video walkthroughs so new reviewers adopt the triage workspace quickly.
+
 ### Next steps
-- Run UX research to validate prioritisation controls and comment workflows before expanding the UI.
-- Integrate usage analytics (leveraging the observability stack) to measure triage efficiency improvements once the richer experience ships.
-- Explore integrations with existing ticketing tools via webhook adapters once the collaboration surface stabilises.
+- Prototype lightweight priority scoring within the existing analytics harness, then validate it through scheduled UX research and telemetry experiments.
+- Layer inline readers and ticketing integrations after instrumentation confirms the revised triage flow, and publish beta release notes for pilot curators.
+- Stand up per-workstream dashboards that blend telemetry and qualitative research notes, closing the loop with governance stakeholders.
+
+### Delivery enablers
+- Finalise design tokens/shared components with the frontend team to accelerate cockpit iteration.
+- Define telemetry schemas (events, properties, retention) and align them with observability guardrails in Workstream 5.
+- Coordinate with legal/compliance on data residency requirements for embedded document readers and third-party integrations.
 
 ## Workstream 5 – Cross-Cutting Observability & Governance
 ### Objectives
@@ -98,10 +139,35 @@ Every `/simulate` response now includes an `engine.backends` map and a `engine.f
 - ✅ **Governance registry.** Data source records with audit checklists are maintained server-side and exposed via the API/governance endpoints for dashboards.【F:backend/graph/governance.py†L1-L120】【F:backend/api/routes.py†L360-L430】
 - ⏳ **Automated alerts.** Alert routing/runbooks remain manual; wiring telemetry into paging and compliance reviews is future work.
 
+### Remaining gaps
+- **Alerting automation.** Automate alert routing for ingestion lag, simulation errors, atlas QA regressions, and cockpit outage signals using the emitted metrics and responder schedules.
+- **Runbook maturity.** Publish runbooks, dashboard templates, and tabletop exercises that consume the new telemetry/gov APIs with clear service-level objectives (SLOs).
+- **Governance registry sync.** Synchronise the governance registry with infrastructure secrets, retention policies, and licensing attestations to maintain audit readiness.
+- **Compliance monitoring.** Integrate periodic privacy/ethics reviews and share metrics on retention-policy adherence.
+
 ### Next steps
-- Publish runbooks and dashboard templates that consume the new telemetry/gov APIs.
-- Automate alerting for ingestion lag, simulation errors, and atlas QA regressions using the emitted metrics.
-- Synchronise the governance registry with infrastructure secrets/retention policies to maintain audit readiness.
+- Land alert automation alongside published runbooks so telemetry guardrails activate with clear ownership paths and escalation ladders.
+- Close the governance registry gaps by mapping secrets management and retention policies into the cockpit dashboards and quarterly compliance reviews.
+- Align observability rollouts with Workstream 1/2 freshness indicators so end-to-end signals reach the same dashboards.
+
+### Delivery enablers
+- Partner with infrastructure to provision alert transport (PagerDuty, Slack webhooks) and secrets backends with audit trails.
+- Codify the governance data model (owners, review cadence, retention) in version control and link it to the RFC tracker.
+- Add synthetic monitoring checks for the public cockpit endpoints with automated issue creation when guardrails trip.
+
+## Recommended next moves
+- Drive the cross-workstream "next steps" agenda: deepen bibliometric enrichment with scheduled classifier retraining, advance the high-fidelity simulation packaging, surface atlas QA/freshness in the cockpit, and automate observability guardrails across telemetry and governance flows.
+- Maintain fortnightly reviews of dependency/licensing status so remaining blockers surface early during sprint planning.
+- Assign workstream leads, draft RFCs that codify remaining milestones, and publish decision logs in the governance registry.
+- Stand up a shared milestone dashboard (Projects + OKRs) that highlights telemetry freshness, atlas coverage, simulation benchmark status, and UX research cadence in one view.
+- Sequence licensing/infrastructure dependency reviews before sprint commitment so heavy solver packaging and Semantic Scholar ingestion land without blockers.
+
+## Readiness checklist
+- [ ] Workstream leads confirmed with weekly sync cadence on the roadmap backlog.
+- [ ] RFCs drafted for assembly provenance, atlas automation, solver packaging, triage UX instrumentation, and observability guardrails.
+- [ ] Licensing and infrastructure dependency reviews scheduled with governance and DevOps counterparts.
+- [ ] Telemetry dashboards show ingestion freshness, atlas QA status, simulation benchmark recency, and triage UX adoption metrics.
+- [ ] Contributor notebooks and onboarding guides published for each workstream’s upgraded tooling.
 
 ## Sequencing Overview
 1. **Quarter 1:** Kick off Workstreams 1 and 2 to unblock richer evidence and visualization; establish telemetry foundations (Workstream 5 M1).
@@ -109,6 +175,5 @@ Every `/simulate` response now includes an `engine.backends` map and a `engine.f
 3. **Quarter 3:** Complete collaboration and drill-down tooling (Workstream 4 M3–M4) and finalize governance artifacts (Workstream 5).
 
 ## Next Steps
-- Assign workstream leads and draft requests for comments (RFCs) detailing technical designs.
-- Schedule dependency reviews (licensing, infrastructure capacity) before sprint commitment.
+- Assign workstream leads, draft requests for comments (RFCs) covering the remaining milestones, and line up licensing/infrastructure dependency reviews before sprint commitment.
 - Track progress via the existing GitHub Projects board with quarterly objectives and key results (OKRs) aligned to the milestones above.

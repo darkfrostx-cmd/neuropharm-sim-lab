@@ -3,7 +3,7 @@ import { afterEach, vi } from 'vitest'
 import ResearchQueue from '../components/ResearchQueue'
 
 afterEach(() => {
-  vi.resetAllMocks()
+  vi.restoreAllMocks()
 })
 
 test('renders research queue items and submits comment updates', async () => {
