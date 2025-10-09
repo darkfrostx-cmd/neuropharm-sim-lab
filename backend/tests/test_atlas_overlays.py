@@ -1,5 +1,6 @@
 from backend.atlas import AtlasOverlayService
 from backend.graph.models import BiolinkEntity, Node
+from backend.atlas import AtlasOverlayService
 from backend.graph.persistence import InMemoryGraphStore
 from backend.graph.service import GraphService
 

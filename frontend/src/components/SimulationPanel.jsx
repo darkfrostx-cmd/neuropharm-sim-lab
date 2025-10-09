@@ -21,6 +21,9 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
   const [muBonding, setMuBonding] = useState(false)
   const [a2aD2, setA2aD2] = useState(false)
   const [alpha2c, setAlpha2c] = useState(false)
+  const [blaCholinergic, setBlaCholinergic] = useState(false)
+  const [oxytocinBoost, setOxytocinBoost] = useState(false)
+  const [vasopressinGate, setVasopressinGate] = useState(false)
 
   useEffect(() => {
     if (!effects?.length) {
@@ -104,6 +107,9 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
         mu_opioid_bonding: Boolean(muBonding),
         a2a_d2_heteromer: Boolean(a2aD2),
         alpha2c_gate: Boolean(alpha2c),
+        bla_cholinergic_salience: Boolean(blaCholinergic),
+        oxytocin_prosocial: Boolean(oxytocinBoost),
+        vasopressin_gating: Boolean(vasopressinGate),
       },
     })
   }
@@ -231,6 +237,27 @@ export default function SimulationPanel({ effects, simulation, onSimulate, timeI
                 <span>α2C cortical gate</span>
               </label>
               <p className="toggle-description">Introduces α2C-mediated dampening of stress arousal while tightening thalamo-cortical gain.</p>
+            </div>
+            <div className="assumption-control">
+              <label className="toggle">
+                <input type="checkbox" checked={blaCholinergic} onChange={(event) => setBlaCholinergic(event.target.checked)} />
+                <span>BLA cholinergic salience</span>
+              </label>
+              <p className="toggle-description">Engages basolateral amygdala cholinergic bursts to sharpen cue salience and socio-emotional tagging.</p>
+            </div>
+            <div className="assumption-control">
+              <label className="toggle">
+                <input type="checkbox" checked={oxytocinBoost} onChange={(event) => setOxytocinBoost(event.target.checked)} />
+                <span>Oxytocin prosocial boost</span>
+              </label>
+              <p className="toggle-description">Augments oxytocinergic loops for attachment security and affiliative motivation.</p>
+            </div>
+            <div className="assumption-control">
+              <label className="toggle">
+                <input type="checkbox" checked={vasopressinGate} onChange={(event) => setVasopressinGate(event.target.checked)} />
+                <span>Vasopressin threat gating</span>
+              </label>
+              <p className="toggle-description">Activates vasopressin-mediated vigilance to explore territorial and dominance stressors.</p>
             </div>
           </div>
           <label>

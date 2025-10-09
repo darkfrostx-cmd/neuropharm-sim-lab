@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, Iterable, List, Mapping, Optional, Set
 
 from ..graph.ingest_atlases import AllenAtlasClient, EBrainsAtlasClient
 from ..graph.models import Node
 from ..graph.service import GraphService
+from .assets import load_hcp_reference, load_julich_reference
 
 
 ALLEN_ANNOTATION_URL = (
@@ -186,6 +187,8 @@ class AtlasOverlayService:
         *,
         allen_client: AllenAtlasClient | None = None,
         ebrains_client: EBrainsAtlasClient | None = None,
+        hcp_reference: dict | None = None,
+        julich_reference: dict | None = None,
     ) -> None:
         self.graph_service = graph_service
         try:
@@ -196,6 +199,8 @@ class AtlasOverlayService:
             self._ebrains = ebrains_client or EBrainsAtlasClient()
         except Exception:
             self._ebrains = ebrains_client
+        self._hcp_reference = hcp_reference or load_hcp_reference()
+        self._julich_reference = julich_reference or load_julich_reference()
 
     def lookup(self, node_id: str) -> AtlasOverlay:
         node = self.graph_service.store.get_node(node_id)
@@ -205,10 +210,28 @@ class AtlasOverlayService:
         curated = self._curated_overlay(node)
         if curated is not None:
             return curated
+        if self._hcp_reference:
+            if "hcp" in provider or "connectome" in provider:
+                matched = self._reference_overlay(node, self._hcp_reference, "Human Connectome Project")
+                if matched:
+                    return matched
+        if self._julich_reference:
+            if "julich" in provider:
+                matched = self._reference_overlay(node, self._julich_reference, "Julich-Brain")
+                if matched:
+                    return matched
         if "allen" in provider or node.id.isdigit():
             return self._allen_overlay(node)
         if "ebrains" in provider or node.id.startswith("http"):
             return self._ebrains_overlay(node)
+        if self._hcp_reference:
+            matched = self._reference_overlay(node, self._hcp_reference, "Human Connectome Project")
+            if matched:
+                return matched
+        if self._julich_reference:
+            matched = self._reference_overlay(node, self._julich_reference, "Julich-Brain")
+            if matched:
+                return matched
         return AtlasOverlay(node_id=node.id, provider=node.provided_by or "unknown")
 
     # ------------------------------------------------------------------
@@ -330,6 +353,61 @@ class AtlasOverlayService:
                     coordinates=coordinates,
                     volumes=volumes,
                 )
+        return None
+
+    def _reference_overlay(
+        self,
+        node: Node,
+        reference: Mapping[str, object] | None,
+        provider_name: str,
+    ) -> AtlasOverlay | None:
+        if not reference:
+            return None
+        lookup_keys: Set[str] = {node.id.lower(), (node.name or "").lower()}
+        attributes = node.attributes if isinstance(node.attributes, dict) else {}
+        synonyms = attributes.get("synonyms") if isinstance(attributes, dict) else None
+        if isinstance(synonyms, Iterable) and not isinstance(synonyms, (str, bytes)):
+            lookup_keys.update(str(value).lower() for value in synonyms if isinstance(value, str))
+        lookup_keys = {key for key in lookup_keys if key}
+        for region in reference.get("regions", []):
+            region_id = str(region.get("id", "")).lower()
+            region_name = str(region.get("name", "")).lower()
+            region_keys = {region_id, region_name}
+            for alias in region.get("aliases", []):
+                region_keys.add(str(alias).lower())
+            if lookup_keys & region_keys:
+                coordinates = [
+                    AtlasCoordinate(
+                        reference_space=coord.get("reference_space_id"),
+                        x_mm=coord.get("x_mm"),
+                        y_mm=coord.get("y_mm"),
+                        z_mm=coord.get("z_mm"),
+                        source=provider_name.lower(),
+                    )
+                    for coord in region.get("coordinates", [])
+                ]
+                volumes = [
+                    AtlasVolume(
+                        name=volume.get("name", "atlas volume"),
+                        url=volume.get("url", ""),
+                        format=volume.get("format", ""),
+                        description=volume.get("description"),
+                        metadata=volume.get("metadata", {}),
+                    )
+                    for volume in region.get("volumes", [])
+                ]
+                for surface in region.get("surfaces", []):
+                    metadata = dict(surface.get("metadata", {}))
+                    metadata.setdefault("type", "surface")
+                    volumes.append(
+                        AtlasVolume(
+                            name=surface.get("name", "atlas surface"),
+                            url=surface.get("url", ""),
+                            format=surface.get("format", ""),
+                            metadata=metadata,
+                        )
+                    )
+                return AtlasOverlay(node_id=node.id, provider=provider_name, coordinates=coordinates, volumes=volumes)
         return None
 
     @staticmethod

@@ -1,11 +1,14 @@
 import os
 
+import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-os.environ.setdefault("GRAPH_AUTO_BOOTSTRAP", "0")
-
+from backend.atlas import AtlasCoordinate, AtlasOverlay, AtlasVolume
 from backend.main import app
+
+os.environ.setdefault("GRAPH_AUTO_BOOTSTRAP", "0")
 
 
 pytestmark = pytest.mark.anyio("asyncio")
@@ -188,12 +191,19 @@ async def test_research_queue_endpoints(serotonin_graph, client):
         "author": "tester@example.org",
         "watchers": ["reviewer@example.org"],
         "priority": 3,
+        "assigned_to": "lead@example.org",
+        "due_date": "2025-01-01T00:00:00Z",
+        "checklist": [
+            {"description": "Review literature", "completed": False, "owner": "tester@example.org"}
+        ],
     }
     create_response = await client.post("/research-queue", json=create_payload)
     assert create_response.status_code == 201
     created = create_response.json()
     assert created["subject"] == "HGNC:HTR1A"
     assert "watchers" in created and "reviewer@example.org" in created["watchers"]
+    assert created["assigned_to"] == "lead@example.org"
+    assert created["checklist"][0]["description"] == "Review literature"
 
     list_response = await client.get("/research-queue")
     assert list_response.status_code == 200
@@ -205,6 +215,10 @@ async def test_research_queue_endpoints(serotonin_graph, client):
         "status": "triaging",
         "add_watchers": ["observer@example.org"],
         "comment": "Replicating in chronic cohort",
+        "assigned_to": "curator@example.org",
+        "checklist": [
+            {"description": "Review literature", "completed": True, "owner": "curator@example.org"}
+        ],
     }
     update_response = await client.patch(f"/research-queue/{created['id']}", json=update_payload)
     assert update_response.status_code == 200
@@ -212,6 +226,8 @@ async def test_research_queue_endpoints(serotonin_graph, client):
     assert updated["status"] == "triaging"
     assert "observer@example.org" in updated["watchers"]
     assert any(comment["body"].startswith("Replicating") for comment in updated["comments"])
+    assert updated["assigned_to"] == "curator@example.org"
+    assert updated["checklist"][0]["completed"] is True
 
 
 async def test_similarity_search_returns_hits(serotonin_graph, client):
@@ -225,4 +241,10 @@ async def test_similarity_search_returns_hits(serotonin_graph, client):
     assert data["query"]["node_id"] == "HGNC:HTR1A"
     assert data["results"]
     assert all("node" in hit for hit in data["results"])
-from backend.atlas import AtlasCoordinate, AtlasOverlay, AtlasVolume
+
+
+async def test_governance_sources_endpoint(client):
+    response = await client.get("/governance/sources")
+    assert response.status_code == 200
+    data = response.json()
+    assert any(item["name"] == "OpenAlex" for item in data["items"])

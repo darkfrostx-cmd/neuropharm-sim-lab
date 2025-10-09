@@ -1,0 +1,30 @@
+{
+  "regions": [
+    {
+      "id": "HCP:MMP1:TPJ",
+      "name": "Temporoparietal Junction",
+      "space": "MNI152",
+      "coordinates": [
+        {"reference_space_id": 997, "x_mm": 52.0, "y_mm": -56.5, "z_mm": 23.2},
+        {"reference_space_id": 997, "x_mm": -52.4, "y_mm": -55.9, "z_mm": 22.8}
+      ],
+      "volumes": [
+        {
+          "name": "HCP MMP1 TPJ parcel",
+          "url": "https://balsa.wustl.edu/files/22453/HCP_MMP1_1mm.nii.gz",
+          "format": "nii.gz",
+          "metadata": {"space": "MNI152", "type": "probability", "source": "HCP-MMP1"}
+        }
+      ],
+      "surfaces": [
+        {
+          "name": "HCP MMP1 TPJ surface",
+          "url": "https://balsa.wustl.edu/files/22453/HCP_MMP1_TPJ_LR.surf.gii",
+          "format": "gii",
+          "metadata": {"type": "surface", "hemisphere": "bilateral", "space": "fs_LR"}
+        }
+      ]
+    }
+  ]
+}
+

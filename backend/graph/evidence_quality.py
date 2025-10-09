@@ -8,11 +8,12 @@ and the simulation adapter.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from statistics import fmean
-from typing import Iterable, Mapping, MutableMapping
+from typing import Dict, Iterable, Mapping, MutableMapping, Sequence
 
 from .models import Edge, Evidence
+from .evidence_classifier import EvidenceQualityClassifier
 
 # ---------------------------------------------------------------------------
 # Normalisation helpers
@@ -162,13 +163,27 @@ class EdgeQualitySummary:
     design_distribution: Mapping[str, int]
     has_human_data: bool
     has_animal_data: bool
+    classifier_label: str | None = None
+    classifier_probability: float | None = None
+    classifier_features: Mapping[str, float] = field(default_factory=dict)
 
 
 class EvidenceQualityScorer:
     """Convert evidence metadata into weighted confidence metrics."""
 
-    def __init__(self, default_confidence: float = 0.55) -> None:
+    def __init__(
+        self,
+        default_confidence: float = 0.55,
+        *,
+        classifier: EvidenceQualityClassifier | None = None,
+    ) -> None:
         self.default_confidence = max(0.05, min(0.95, float(default_confidence)))
+        self._classifier = classifier
+
+    def attach_classifier(self, classifier: EvidenceQualityClassifier | None) -> None:
+        """Inject a trained classifier used during summarisation."""
+
+        self._classifier = classifier
 
     # Public API -----------------------------------------------------------
     def score_evidence(self, evidence: Evidence) -> EvidenceQualityBreakdown:
@@ -231,6 +246,18 @@ class EvidenceQualityScorer:
         has_human = any(bd.species == "human" for bd in breakdowns)
         has_animal = any((bd.species or "") not in {"", "human", "cell"} for bd in breakdowns)
 
+        classifier_label: str | None = None
+        classifier_probability: float | None = None
+        classifier_features: Dict[str, float] = {}
+        if self._classifier is not None and breakdowns:
+            classifier_features = self._features_from_breakdowns(breakdowns)
+            try:
+                classifier_label, classifier_probability = self._classifier.predict_label(classifier_features)
+            except Exception:
+                classifier_label = None
+                classifier_probability = None
+                classifier_features = {}
+
         return EdgeQualitySummary(
             score=float(score) if score is not None else None,
             breakdowns=tuple(breakdowns),
@@ -239,6 +266,9 @@ class EvidenceQualityScorer:
             design_distribution=design_distribution,
             has_human_data=has_human,
             has_animal_data=has_animal,
+            classifier_label=classifier_label,
+            classifier_probability=classifier_probability,
+            classifier_features=classifier_features,
         )
 
     # Internal helpers ----------------------------------------------------
@@ -295,6 +325,32 @@ class EvidenceQualityScorer:
             label = key(breakdown)
             counts[label] = counts.get(label, 0) + 1
         return counts
+
+    def _features_from_breakdowns(
+        self, breakdowns: Sequence[EvidenceQualityBreakdown]
+    ) -> Dict[str, float]:
+        totals = [bd.total_score for bd in breakdowns]
+        species_scores = [bd.species_score for bd in breakdowns]
+        chronicity_scores = [bd.chronicity_score for bd in breakdowns]
+        design_scores = [bd.design_score for bd in breakdowns]
+        features: Dict[str, float] = {
+            "count": float(len(breakdowns)),
+            "mean_total": float(fmean(totals)),
+            "max_total": float(max(totals)),
+            "min_total": float(min(totals)),
+            "mean_species": float(fmean(species_scores)),
+            "mean_chronicity": float(fmean(chronicity_scores)),
+            "mean_design": float(fmean(design_scores)),
+            "human_ratio": float(
+                sum(1 for bd in breakdowns if bd.species == "human") / len(breakdowns)
+            ),
+            "clinical_ratio": float(
+                sum(1 for bd in breakdowns if bd.design == "clinical") / len(breakdowns)
+            ),
+        }
+        features["human_ratio"] = float(max(0.0, min(1.0, features["human_ratio"])))
+        features["clinical_ratio"] = float(max(0.0, min(1.0, features["clinical_ratio"])))
+        return features
 
 
 __all__ = [

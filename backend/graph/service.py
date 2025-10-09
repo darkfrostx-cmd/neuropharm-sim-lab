@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Sequence, Set, Tuple
+from datetime import datetime
+from typing import Dict, Iterable, List, Mapping, Sequence, Set, Tuple
 
 from ..config import (
     DEFAULT_GRAPH_CONFIG,
@@ -12,6 +13,12 @@ from ..config import (
     GraphConfig,
     VectorStoreConfig,
 )
+from .governance import DataGovernanceRegistry, DataSourceRecord
+
+try:  # pragma: no cover - optional dependency
+    from opentelemetry import metrics
+except Exception:  # pragma: no cover - optional dependency
+    metrics = None  # type: ignore[assignment]
 from ..reasoning import CausalEffectEstimator, CausalSummary
 from .gap_state import ResearchQueueEntry, ResearchQueueStore
 from .gaps import EmbeddingConfig, EmbeddingGapFinder, GapReport, RotatEGapFinder
@@ -45,6 +52,54 @@ class SimilarityResult:
     metadata: Dict[str, object]
 
 
+class _GraphServiceMetrics:
+    """Thin wrapper around optional OpenTelemetry metrics."""
+
+    def __init__(self) -> None:
+        self._enabled = False
+        if metrics is None:
+            return
+        try:
+            meter = metrics.get_meter(__name__)
+            self._queue_events = meter.create_counter(
+                "graph.research_queue.events",
+                unit="1",
+                description="Research queue operations",
+            )
+            self._evidence_queries = meter.create_counter(
+                "graph.evidence.lookups",
+                unit="1",
+                description="Evidence lookup invocations",
+            )
+            self._enabled = True
+        except Exception:  # pragma: no cover - instrumentation best effort
+            self._enabled = False
+
+    def record_queue(self, action: str, *, priority: int | None = None) -> None:
+        if not self._enabled:
+            return
+        attributes = {"action": action}
+        if priority is not None:
+            attributes["priority"] = float(priority)
+        try:
+            self._queue_events.add(1, attributes=attributes)
+        except Exception:  # pragma: no cover - exporter failures ignored
+            return
+
+    def record_lookup(self, subject: str | None, predicate: str | None, object_: str | None) -> None:
+        if not self._enabled:
+            return
+        attributes = {
+            "has_subject": "yes" if subject else "no",
+            "has_predicate": "yes" if predicate else "no",
+            "has_object": "yes" if object_ else "no",
+        }
+        try:
+            self._evidence_queries.add(1, attributes=attributes)
+        except Exception:  # pragma: no cover - exporter failures ignored
+            return
+
+
 class GraphService:
     """High-level service exposing evidence and graph queries."""
 
@@ -76,6 +131,9 @@ class GraphService:
         self._literature = literature
         self._label_cache: Dict[str, str] = {}
         self._research_queue = ResearchQueueStore()
+        self._metrics = _GraphServiceMetrics()
+        self._governance = DataGovernanceRegistry()
+        self._bootstrap_governance()
 
     def _create_store(self, config: GraphConfig) -> GraphStore:
         primary = self._create_single_store(config.primary)
@@ -108,6 +166,7 @@ class GraphService:
         object_: str | None = None,
     ) -> List[EvidenceSummary]:
         edges = self.store.get_edge_evidence(subject=subject, predicate=predicate, object_=object_)
+        self._metrics.record_lookup(subject, predicate, object_)
         return [EvidenceSummary(edge=edge, evidence=edge.evidence) for edge in edges]
 
     # ------------------------------------------------------------------
@@ -214,8 +273,11 @@ class GraphService:
         priority: int = 2,
         watchers: Iterable[str] | None = None,
         metadata: Dict[str, object] | None = None,
+        assigned_to: str | None = None,
+        due_date: datetime | None = None,
+        checklist: Iterable[Mapping[str, object]] | None = None,
     ) -> ResearchQueueEntry:
-        return self._research_queue.enqueue(
+        entry = self._research_queue.enqueue(
             subject=subject,
             predicate=predicate,
             object_=object_,
@@ -224,7 +286,12 @@ class GraphService:
             priority=priority,
             watchers=watchers,
             metadata=metadata,
+            assigned_to=assigned_to,
+            due_date=due_date,
+            checklist=checklist,
         )
+        self._metrics.record_queue("enqueue", priority=priority)
+        return entry
 
     def update_research_item(
         self,
@@ -237,8 +304,11 @@ class GraphService:
         remove_watchers: Iterable[str] | None = None,
         comment: str | None = None,
         metadata: Dict[str, object] | None = None,
+        assigned_to: str | None = None,
+        due_date: datetime | None = None,
+        checklist: Iterable[Mapping[str, object]] | None = None,
     ) -> ResearchQueueEntry:
-        return self._research_queue.update(
+        entry = self._research_queue.update(
             entry_id,
             actor=actor,
             status=status,
@@ -247,7 +317,15 @@ class GraphService:
             remove_watchers=remove_watchers,
             comment=comment,
             metadata=metadata,
+            assigned_to=assigned_to,
+            due_date=due_date,
+            checklist=checklist,
         )
+        self._metrics.record_queue("update", priority=priority if priority is not None else entry.priority)
+        return entry
+
+    def list_governance_sources(self) -> List[DataSourceRecord]:
+        return self._governance.list()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -401,6 +479,55 @@ class GraphService:
         if node_id not in self._label_cache:
             self._ensure_label(node_id)
         return self._label_cache.get(node_id, node_id)
+
+    def _bootstrap_governance(self) -> None:
+        if self._governance.list():
+            return
+        registry = self._governance
+        registry.register("OpenAlex", category="literature", pii=False, retention="standard", access_tier="open")
+        registry.update_checks(
+            "OpenAlex",
+            [
+                {"name": "license", "passed": True, "note": "CC-BY"},
+                {"name": "ingestion_audit", "passed": True},
+            ],
+        )
+        registry.register("Semantic Scholar", category="literature", pii=False, retention="standard", access_tier="open")
+        registry.update_checks(
+            "Semantic Scholar",
+            [
+                {"name": "rate_limit_review", "passed": True},
+            ],
+        )
+        registry.register("Human Connectome Project", category="atlas", pii=False, retention="extended", access_tier="controlled")
+        registry.update_checks(
+            "Human Connectome Project",
+            [
+                {"name": "license", "passed": True, "note": "ConnectomeDB"},
+                {"name": "pii_screen", "passed": True},
+            ],
+        )
+        registry.register("Julich-Brain", category="atlas", pii=False, retention="extended", access_tier="controlled")
+        registry.update_checks(
+            "Julich-Brain",
+            [
+                {"name": "license", "passed": True, "note": "EBRAINS"},
+            ],
+        )
+        registry.register("Allen Brain Atlas", category="atlas", pii=False, retention="standard", access_tier="open")
+        registry.update_checks(
+            "Allen Brain Atlas",
+            [
+                {"name": "license", "passed": True, "note": "CC-BY"},
+            ],
+        )
+        registry.register("PDSP Ki", category="assay", pii=False, retention="standard", access_tier="open")
+        registry.update_checks(
+            "PDSP Ki",
+            [
+                {"name": "data_use_agreement", "passed": True},
+            ],
+        )
 
     def _build_assumption_graph(
         self,

@@ -280,6 +280,20 @@ RECEPTORS: Mapping[str, Dict[str, object]] = {
         },
         "description": "Oxytocin receptor; facilitates social bonding, trust and affiliation particularly in limbic-prefrontal loops.",
     },
+    "AVPR1A": {
+        "weights": {
+            "drive": 0.08,
+            "apathy": -0.06,
+            "motivation": 0.1,
+            "cognitive_flexibility": -0.05,
+            "anxiety": 0.32,
+            "sleep_quality": -0.05,
+            "social_affiliation": 0.18,
+            "exploration": -0.12,
+            "salience": 0.28,
+        },
+        "description": "Arginine vasopressin 1A receptor; heightens threat surveillance and territorial vigilance while coupling to social dominance circuits.",
+    },
     "TRKB": {
         "weights": {
             "drive": 0.3,

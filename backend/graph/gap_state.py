@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, MutableMapping, Optional, Sequence
+from typing import Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence
 
 from .models import BiolinkPredicate
 
@@ -24,6 +24,13 @@ class TriageComment:
 
 
 @dataclass(slots=True)
+class ChecklistItem:
+    description: str
+    completed: bool = False
+    owner: str | None = None
+
+
+@dataclass(slots=True)
 class ResearchQueueEntry:
     """Research queue payload tracked alongside gap candidates."""
 
@@ -40,6 +47,9 @@ class ResearchQueueEntry:
     comments: List[TriageComment] = field(default_factory=list)
     metadata: Dict[str, object] = field(default_factory=dict)
     history: List[Dict[str, object]] = field(default_factory=list)
+    assigned_to: str | None = None
+    due_date: datetime | None = None
+    checklist: List[ChecklistItem] = field(default_factory=list)
 
     def touch(self, *, actor: str, changes: MutableMapping[str, object]) -> None:
         self.updated_at = _utcnow()
@@ -78,6 +88,9 @@ class ResearchQueueStore:
         priority: int = 2,
         watchers: Optional[Iterable[str]] = None,
         metadata: Optional[Dict[str, object]] = None,
+        assigned_to: Optional[str] = None,
+        due_date: Optional[datetime] = None,
+        checklist: Optional[Iterable[Mapping[str, object]]] = None,
     ) -> ResearchQueueEntry:
         entry_id = self._entry_id(subject, predicate, object_)
         existing = self._entries.get(entry_id)
@@ -92,6 +105,14 @@ class ResearchQueueStore:
             existing.touch(actor=author, changes={"action": "enqueue:update"})
             return existing
         metadata_payload = dict(metadata or {})
+        checklist_items = [
+            ChecklistItem(
+                description=str(item.get("description", "")),
+                completed=bool(item.get("completed", False)),
+                owner=str(item.get("owner")) if item.get("owner") else None,
+            )
+            for item in (checklist or [])
+        ]
         entry = ResearchQueueEntry(
             id=entry_id,
             subject=subject,
@@ -100,6 +121,9 @@ class ResearchQueueStore:
             priority=priority,
             watchers=sorted({w.strip() for w in (watchers or []) if w and w.strip()}),
             metadata=metadata_payload,
+            assigned_to=assigned_to.strip() if assigned_to else None,
+            due_date=due_date,
+            checklist=checklist_items,
         )
         entry.comments.append(TriageComment(author=author, body=reason))
         entry.touch(actor=author, changes={"action": "enqueue"})
@@ -117,6 +141,9 @@ class ResearchQueueStore:
         remove_watchers: Optional[Iterable[str]] = None,
         comment: Optional[str] = None,
         metadata: Optional[Dict[str, object]] = None,
+        assigned_to: Optional[str] = None,
+        due_date: Optional[datetime] = None,
+        checklist: Optional[Iterable[Mapping[str, object]]] = None,
     ) -> ResearchQueueEntry:
         entry = self.get(entry_id)
         changes: Dict[str, object] = {}
@@ -128,6 +155,12 @@ class ResearchQueueStore:
         if priority is not None and priority != entry.priority:
             entry.priority = max(1, min(5, int(priority)))
             changes["priority"] = entry.priority
+        if assigned_to is not None and assigned_to != entry.assigned_to:
+            entry.assigned_to = assigned_to.strip() or None
+            changes["assigned_to"] = entry.assigned_to
+        if due_date is not None and due_date != entry.due_date:
+            entry.due_date = due_date
+            changes["due_date"] = due_date.isoformat()
         if add_watchers:
             new_watchers = {w.strip() for w in add_watchers if w and w.strip()}
             if new_watchers:
@@ -144,6 +177,16 @@ class ResearchQueueStore:
         if metadata:
             entry.metadata.update(metadata)
             changes["metadata"] = metadata
+        if checklist is not None:
+            entry.checklist = [
+                ChecklistItem(
+                    description=str(item.get("description", "")),
+                    completed=bool(item.get("completed", False)),
+                    owner=str(item.get("owner")) if item.get("owner") else None,
+                )
+                for item in checklist
+            ]
+            changes["checklist"] = [item.description for item in entry.checklist]
         if comment:
             note = TriageComment(author=actor, body=comment)
             entry.comments.append(note)
@@ -154,6 +197,7 @@ class ResearchQueueStore:
 
 
 __all__ = [
+    "ChecklistItem",
     "ResearchQueueEntry",
     "ResearchQueueStore",
     "TriageComment",

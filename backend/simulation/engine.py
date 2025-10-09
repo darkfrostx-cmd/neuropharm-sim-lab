@@ -95,6 +95,18 @@ BEHAVIORAL_TAG_MAP: Dict[str, Dict[str, Any]] = {
         "cogatlas": {"id": "trm_4a3fd79d0a1f6", "label": "salience attribution"},
         "domain": "Cognitive Systems",
     },
+    "ThreatSurveillance": {
+        "label": "Threat surveillance",
+        "rdoc": {"id": "RDoC:NEG_POT_THREAT", "label": "Negative Valence – Potential Threat"},
+        "cogatlas": {"id": "trm_4a3fd79d0b5f9", "label": "threat perception"},
+        "domain": "Negative Valence Systems",
+    },
+    "AttachmentSecurity": {
+        "label": "Attachment security",
+        "rdoc": {"id": "RDoC:SP_ATTACHMENT", "label": "Social Processes – Attachment"},
+        "cogatlas": {"id": "trm_4a3fd79d0978a", "label": "attachment"},
+        "domain": "Social Processes",
+    },
 }
 
 
@@ -223,6 +235,9 @@ class SimulationEngine:
         mu_opioid_bonding = request.assumptions.get("mu_opioid_bonding", False)
         a2a_d2_heteromer = request.assumptions.get("a2a_d2_heteromer", False)
         alpha2c_gate = request.assumptions.get("alpha2c_gate", False)
+        bla_cholinergic = request.assumptions.get("bla_cholinergic_salience", False)
+        oxytocin_prosocial = request.assumptions.get("oxytocin_prosocial", False)
+        vasopressin_gating = request.assumptions.get("vasopressin_gating", False)
         if trkb_facilitation:
             downstream_nodes["BDNF"] = downstream_nodes.get("BDNF", 0.1) * 1.35
             downstream_nodes["mTOR"] = downstream_nodes.get("mTOR", 0.05) * 1.25
@@ -253,6 +268,43 @@ class SimulationEngine:
                 delta = 0.4 * axis_weight
                 behaviour_axes[axis] = behaviour_axes.get(axis, 0.0) + delta
                 assumption_behaviour_axes[axis] = assumption_behaviour_axes.get(axis, 0.0) + delta
+        if bla_cholinergic:
+            downstream_nodes["ACH_BLA"] = downstream_nodes.get("ACH_BLA", 0.04) * 1.35
+            weights_profile = get_receptor_weights("ACh-BLA")
+            for axis, axis_weight in weights_profile.items():
+                delta = 0.4 * axis_weight
+                behaviour_axes[axis] = behaviour_axes.get(axis, 0.0) + delta
+                assumption_behaviour_axes[axis] = assumption_behaviour_axes.get(axis, 0.0) + delta
+                if axis == "social_affiliation":
+                    attach_delta = 0.24 * axis_weight
+                    behaviour_axes["attachment"] = behaviour_axes.get("attachment", 0.0) + attach_delta
+                    assumption_behaviour_axes["attachment"] = assumption_behaviour_axes.get("attachment", 0.0) + attach_delta
+                if axis == "salience":
+                    threat_delta = 0.28 * axis_weight
+                    behaviour_axes["threat"] = behaviour_axes.get("threat", 0.0) + threat_delta
+                    assumption_behaviour_axes["threat"] = assumption_behaviour_axes.get("threat", 0.0) + threat_delta
+        if oxytocin_prosocial:
+            downstream_nodes["OXYTOCIN"] = downstream_nodes.get("OXYTOCIN", 0.06) * 1.55
+            weights_profile = get_receptor_weights("OXTR")
+            for axis, axis_weight in weights_profile.items():
+                delta = 0.5 * axis_weight
+                behaviour_axes[axis] = behaviour_axes.get(axis, 0.0) + delta
+                assumption_behaviour_axes[axis] = assumption_behaviour_axes.get(axis, 0.0) + delta
+                if axis == "social_affiliation":
+                    attach_delta = 0.35 * axis_weight
+                    behaviour_axes["attachment"] = behaviour_axes.get("attachment", 0.0) + attach_delta
+                    assumption_behaviour_axes["attachment"] = assumption_behaviour_axes.get("attachment", 0.0) + attach_delta
+        if vasopressin_gating:
+            downstream_nodes["VASOPRESSIN"] = downstream_nodes.get("VASOPRESSIN", 0.05) * 1.4
+            weights_profile = get_receptor_weights("AVPR1A")
+            for axis, axis_weight in weights_profile.items():
+                delta = 0.38 * axis_weight
+                behaviour_axes[axis] = behaviour_axes.get(axis, 0.0) + delta
+                assumption_behaviour_axes[axis] = assumption_behaviour_axes.get(axis, 0.0) + delta
+                if axis in {"anxiety", "salience"}:
+                    threat_delta = 0.3 * axis_weight
+                    behaviour_axes["threat"] = behaviour_axes.get("threat", 0.0) + threat_delta
+                    assumption_behaviour_axes["threat"] = assumption_behaviour_axes.get("threat", 0.0) + threat_delta
         alpha2a_gate = request.assumptions.get("alpha2a_hcn_closure", False)
         if alpha2a_gate or "ADRA2A" in canonical_entries:
             behaviour_axes["cognitive_flexibility"] = behaviour_axes.get("cognitive_flexibility", 0.0) + 0.18
@@ -338,6 +390,15 @@ class SimulationEngine:
         if alpha2c_gate:
             noradrenaline_drive *= 1.05
             dopamine_drive *= 0.97
+        if bla_cholinergic:
+            dopamine_drive *= 1.03
+            noradrenaline_drive *= 1.06
+        if oxytocin_prosocial:
+            serotonin_drive *= 1.03
+            noradrenaline_drive *= 0.96
+        if vasopressin_gating:
+            noradrenaline_drive *= 1.08
+            dopamine_drive *= 0.96
 
         serotonin_drive = float(np.clip(serotonin_drive, -1.0, 1.0))
         dopamine_drive = float(np.clip(dopamine_drive, -1.0, 1.0))
@@ -366,6 +427,12 @@ class SimulationEngine:
         if a2a_d2_heteromer:
             coupling_baseline += 0.04
         if alpha2c_gate:
+            coupling_baseline += 0.02
+        if bla_cholinergic:
+            coupling_baseline += 0.03
+        if oxytocin_prosocial:
+            coupling_baseline += 0.02
+        if vasopressin_gating:
             coupling_baseline += 0.02
 
         circuit_params = CircuitParameters(
@@ -419,6 +486,10 @@ class SimulationEngine:
                 behaviour_axes.get("salience", 0.0)
                 + circuit_response.global_metrics["flexibility_index"] * 0.25
             )
+            if behaviour_axes.get("attachment") or oxytocin_prosocial or mu_opioid_bonding:
+                scores["AttachmentSecurity"] = _behaviour_metric(behaviour_axes.get("attachment", 0.0))
+            if behaviour_axes.get("threat") or bla_cholinergic or vasopressin_gating:
+                scores["ThreatSurveillance"] = _behaviour_metric(behaviour_axes.get("threat", 0.0))
 
         if request.adhd:
             scores["Motivation"] = max(0.0, scores["Motivation"] - 5.0)

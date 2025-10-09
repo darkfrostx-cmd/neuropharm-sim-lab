@@ -1,0 +1,30 @@
+{
+  "regions": [
+    {
+      "id": "Julich:AMY:SF",
+      "name": "Superficial Amygdala",
+      "space": "ICBM152",
+      "coordinates": [
+        {"reference_space_id": 997, "x_mm": 24.1, "y_mm": -2.2, "z_mm": -18.3},
+        {"reference_space_id": 997, "x_mm": -24.4, "y_mm": -2.1, "z_mm": -18.0}
+      ],
+      "volumes": [
+        {
+          "name": "Julich-Brain superficial amygdala probability",
+          "url": "https://resources.humanbrainproject.eu/interactive-broker/rest/bundles/9130b605-e286-4d06-9c5f-1c9ec81423f8/files/SF_LR-prob.nii.gz",
+          "format": "nii.gz",
+          "metadata": {"space": "ICBM152", "type": "probability", "source": "Julich-Brain"}
+        }
+      ],
+      "surfaces": [
+        {
+          "name": "Julich-Brain superficial amygdala surface",
+          "url": "https://resources.humanbrainproject.eu/interactive-broker/rest/bundles/9130b605-e286-4d06-9c5f-1c9ec81423f8/files/SF_LR-surface.gii",
+          "format": "gii",
+          "metadata": {"type": "surface", "hemisphere": "bilateral", "space": "ICBM152"}
+        }
+      ]
+    }
+  ]
+}
+
