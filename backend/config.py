@@ -234,6 +234,70 @@ class VectorStoreConfig:
         )
 
 
+@dataclass(slots=True)
+class TelemetryConfig:
+    """Runtime configuration for OpenTelemetry exporters."""
+
+    enabled: bool = False
+    service_name: str = "neuropharm-api"
+    environment: str = "development"
+    exporter_endpoint: Optional[str] = None
+    exporter_protocol: str = "http/protobuf"
+    sampling_ratio: float = 0.1
+    capture_metrics: bool = True
+    capture_traces: bool = True
+
+    @classmethod
+    def from_env(
+        cls,
+        env: Mapping[str, str] | None = None,
+        prefix: str = "OTEL_",
+    ) -> "TelemetryConfig":
+        """Construct a configuration object from environment variables."""
+
+        env = env or os.environ
+        enabled_raw = env.get(f"{prefix}ENABLED") or env.get("ENABLE_TELEMETRY")
+        enabled = False
+        if enabled_raw is not None:
+            enabled = str(enabled_raw).strip().lower() not in {"0", "false", "no"}
+        endpoint = env.get(f"{prefix}EXPORTER_OTLP_ENDPOINT") or env.get("OTEL_EXPORTER_OTLP_ENDPOINT")
+        protocol = env.get(f"{prefix}EXPORTER_OTLP_PROTOCOL") or env.get("OTEL_EXPORTER_OTLP_PROTOCOL")
+        service_name = env.get(f"{prefix}SERVICE_NAME") or env.get("SERVICE_NAME") or "neuropharm-api"
+        environment_name = env.get(f"{prefix}ENVIRONMENT") or env.get("DEPLOYMENT_ENV", "development")
+
+        def _parse_ratio(raw: str | None, default: float) -> float:
+            if raw is None:
+                return default
+            try:
+                parsed = float(raw)
+            except (TypeError, ValueError):
+                return default
+            if parsed <= 0.0:
+                return 0.0
+            if parsed >= 1.0:
+                return 1.0
+            return parsed
+
+        sampling_ratio = _parse_ratio(
+            env.get(f"{prefix}SAMPLING_RATIO") or env.get("OTEL_TRACES_SAMPLER_ARG"),
+            0.1,
+        )
+        capture_metrics = (env.get(f"{prefix}CAPTURE_METRICS", "1").lower() not in {"0", "false", "no"})
+        capture_traces = (env.get(f"{prefix}CAPTURE_TRACES", "1").lower() not in {"0", "false", "no"})
+
+        return cls(
+            enabled=enabled or bool(endpoint),
+            service_name=service_name,
+            environment=environment_name,
+            exporter_endpoint=endpoint,
+            exporter_protocol=protocol or "http/protobuf",
+            sampling_ratio=sampling_ratio,
+            capture_metrics=capture_metrics,
+            capture_traces=capture_traces,
+        )
+
+
 DEFAULT_GRAPH_CONFIG = GraphConfig.from_env()
 DEFAULT_VECTOR_STORE_CONFIG = VectorStoreConfig.from_env()
+DEFAULT_TELEMETRY_CONFIG = TelemetryConfig.from_env()
 

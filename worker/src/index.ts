@@ -1,8 +1,13 @@
+import { ensureTelemetry, withSpan } from './telemetry'
+
 export interface Env {
   API_BASE_URL?: string;
   CACHE_TTL_SECONDS?: string;
   NEUROPHARM_CONFIG?: KVNamespace;
   VECTOR_CACHE?: D1Database;
+  OTEL_EXPORTER_OTLP_ENDPOINT?: string;
+  TELEMETRY_ENABLED?: string;
+  ENVIRONMENT?: string;
 }
 
 const CACHEABLE_METHODS = new Set(["GET"]);
@@ -158,68 +163,101 @@ function buildHealthPayload(env: Env, backendBase: string | null): Response {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-
-    if (url.pathname === "/__worker/health") {
-      const backendBase = await resolveBackendBase(env);
-      return buildHealthPayload(env, backendBase);
-    }
-
-    const backendBase = await resolveBackendBase(env);
-    if (!backendBase) {
-      return new Response(
-        JSON.stringify({ error: "API backend not configured", code: "backend_missing" }),
-        {
-          status: 500,
-          headers: { "content-type": "application/json; charset=utf-8" },
-        },
-      );
-    }
-
-    const ttlSeconds = parseTtl(env);
-    const cacheKey = cacheKeyFromUrl(url);
-
-    if (CACHEABLE_METHODS.has(request.method.toUpperCase())) {
-      const cached = await readFromCache(env, cacheKey, ttlSeconds);
-      if (cached) {
-        return cached;
-      }
-    }
-
-    const upstream = new URL(backendBase);
-    upstream.pathname = joinPaths(upstream.pathname, url.pathname);
-    upstream.search = url.search;
-    upstream.hash = url.hash;
-
-    const headers = sanitiseHeaders(new Headers(request.headers));
-    const init: RequestInit = {
-      method: request.method,
-      headers,
-      redirect: "manual",
-    };
-
-    if (request.method.toUpperCase() !== "GET" && request.method.toUpperCase() !== "HEAD") {
-      init.body = await request.arrayBuffer();
-    }
-
-    const backendResponse = await fetch(upstream.toString(), init);
-    const responseHeaders = new Headers(backendResponse.headers);
-    responseHeaders.set("CF-Worker-Cache", "MISS");
-
-    const response = new Response(backendResponse.body, {
-      status: backendResponse.status,
-      statusText: backendResponse.statusText,
-      headers: responseHeaders,
+    ensureTelemetry({
+      serviceName: 'neuropharm-worker',
+      environment: env.ENVIRONMENT,
+      enabled:
+        !!(env.OTEL_EXPORTER_OTLP_ENDPOINT && env.OTEL_EXPORTER_OTLP_ENDPOINT.trim()) ||
+        !!(env.TELEMETRY_ENABLED && env.TELEMETRY_ENABLED.trim() && env.TELEMETRY_ENABLED !== '0'),
     });
 
-    if (
-      CACHEABLE_METHODS.has(request.method.toUpperCase()) &&
-      shouldCacheResponse(response) &&
-      env.VECTOR_CACHE
-    ) {
-      ctx.waitUntil(persistToCache(env, cacheKey, response));
-    }
+    return withSpan(
+      'worker.fetch',
+      {
+        'http.method': request.method,
+        'http.url': request.url,
+      },
+      async (span) => {
+        const url = new URL(request.url);
 
-    return response;
+        if (url.pathname === "/__worker/health") {
+          const backendBase = await resolveBackendBase(env);
+          span?.setAttribute('worker.health_check', true);
+          return buildHealthPayload(env, backendBase);
+        }
+
+        const backendBase = await withSpan(
+          'worker.resolve_backend',
+          {},
+          async () => resolveBackendBase(env),
+        );
+        if (!backendBase) {
+          span?.setStatus({ code: 2, message: 'backend missing' });
+          return new Response(
+            JSON.stringify({ error: "API backend not configured", code: "backend_missing" }),
+            {
+              status: 500,
+              headers: { "content-type": "application/json; charset=utf-8" },
+            },
+          );
+        }
+
+        const ttlSeconds = parseTtl(env);
+        const cacheKey = cacheKeyFromUrl(url);
+        span?.setAttribute('cache.ttl', ttlSeconds);
+
+        if (CACHEABLE_METHODS.has(request.method.toUpperCase())) {
+          const cached = await withSpan(
+            'worker.cache_lookup',
+            { cacheKey },
+            async () => readFromCache(env, cacheKey, ttlSeconds),
+          );
+          if (cached) {
+            span?.setAttribute('cache.hit', true);
+            return cached;
+          }
+        }
+
+        span?.setAttribute('cache.hit', false);
+
+        const upstream = new URL(backendBase);
+        upstream.pathname = joinPaths(upstream.pathname, url.pathname);
+        upstream.search = url.search;
+        upstream.hash = url.hash;
+
+        const headers = sanitiseHeaders(new Headers(request.headers));
+        const init: RequestInit = {
+          method: request.method,
+          headers,
+          redirect: "manual",
+        };
+
+        if (!CACHEABLE_METHODS.has(request.method.toUpperCase())) {
+          init.body = await request.arrayBuffer();
+        }
+
+        const response = await withSpan(
+          'worker.proxy_request',
+          { upstream: upstream.origin },
+          async (childSpan) => {
+            const upstreamResponse = await fetch(upstream.toString(), init);
+            childSpan?.setAttribute('http.status_code', upstreamResponse.status);
+            childSpan?.setAttribute('cacheable', shouldCacheResponse(upstreamResponse));
+            return upstreamResponse;
+          },
+        );
+
+        if (CACHEABLE_METHODS.has(request.method.toUpperCase()) && shouldCacheResponse(response)) {
+          ctx.waitUntil(
+            withSpan(
+              'worker.cache_store',
+              { cacheKey },
+              async () => persistToCache(env, cacheKey, response.clone()),
+            ),
+          );
+        }
+        return response;
+      },
+    );
   },
 };

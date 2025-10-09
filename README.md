@@ -73,6 +73,41 @@ custom code. This gateway works transparently behind the provided Cloudflare
 Worker proxy and can be deployed to a FastAPI-ready Hugging Face Space by
 pointing `app = backend.main.app` inside your Space entry script.
 
+#### Observability hooks
+
+The FastAPI backend and Cloudflare Worker now emit OpenTelemetry traces and
+metrics whenever the `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_ENABLED=1`) environment
+variable is provided. The helper in `backend/telemetry.py` instruments FastAPI,
+ingestion jobs, and the simulation pipeline, while the worker wraps cache hits
+and upstream proxy hops. Point the services at your collector of choice:
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+export TELEMETRY_ENABLED=1  # Cloudflare worker binding
+```
+
+Traces are labelled with deployment metadata (`service.name`,
+`deployment.environment`) to simplify multi-environment dashboards.
+
+#### Research queue and similarity APIs
+
+Collaborative triage now lives behind dedicated endpoints:
+
+```text
+GET  /research-queue             # list triage items with comments & watchers
+POST /research-queue             # enqueue or update a research item
+PATCH /research-queue/{entry_id} # update status, watchers or add comments
+POST /evidence/similarity        # pgvector-backed embedding similarity search
+```
+
+The new `/evidence/similarity` route uses the RotatE embeddings captured during
+gap ranking to surface related graph nodes (powered by SQLite in development and
+pgvector in production).
+
+The React cockpit ships with a `ResearchQueue` panel (`frontend/src/components/ResearchQueue.jsx`)
+that visualises the queue, allows inline status changes, watcher management and
+commenting, and renders an audit trail for each entry.
+
 The optional simulation toolkits (PySB, OSPSuite, TVB) pull heavy native wheels.
 Install them only when you need the full PK/PD stack:
 

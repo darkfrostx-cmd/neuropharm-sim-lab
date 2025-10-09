@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Iterable, List, Set, Tuple, Type
+from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, Type
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.encoders import jsonable_encoder
@@ -444,6 +444,99 @@ def find_graph_gaps(
     return schemas.GapResponse(items=items)
 
 
+@router.get("/research-queue", response_model=schemas.ResearchQueueListResponse)
+def list_research_queue(svc: ServiceRegistry = Depends(get_services)) -> schemas.ResearchQueueListResponse:
+    entries = svc.graph_service.list_research_queue()
+    items = [schemas.ResearchQueueItem.from_domain(entry) for entry in entries]
+    return schemas.ResearchQueueListResponse(items=items)
+
+
+@router.post("/research-queue", response_model=schemas.ResearchQueueItem, status_code=status.HTTP_201_CREATED)
+def create_research_queue_entry(
+    request: schemas.ResearchQueueCreateRequest,
+    svc: ServiceRegistry = Depends(get_services),
+) -> schemas.ResearchQueueItem:
+    entry = svc.graph_service.enqueue_research_item(
+        subject=request.subject,
+        predicate=request.predicate,
+        object_=request.object,
+        reason=request.reason,
+        author=request.author,
+        priority=request.priority,
+        watchers=request.watchers,
+        metadata=request.metadata,
+    )
+    return schemas.ResearchQueueItem.from_domain(entry)
+
+
+@router.patch("/research-queue/{entry_id}", response_model=schemas.ResearchQueueItem)
+def update_research_queue_entry(
+    entry_id: str,
+    request: schemas.ResearchQueueUpdateRequest,
+    svc: ServiceRegistry = Depends(get_services),
+) -> schemas.ResearchQueueItem:
+    try:
+        entry = svc.graph_service.update_research_item(
+            entry_id,
+            actor=request.actor,
+            status=request.status,
+            priority=request.priority,
+            add_watchers=request.add_watchers,
+            remove_watchers=request.remove_watchers,
+            comment=request.comment,
+            metadata=request.metadata or None,
+        )
+    except KeyError:
+        raise _http_error(
+            status.HTTP_404_NOT_FOUND,
+            "queue_entry_not_found",
+            f"Queue entry '{entry_id}' does not exist.",
+            context={"entry_id": entry_id},
+        )
+    except ValueError as exc:
+        raise _http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "queue_update_invalid",
+            str(exc),
+            context={"entry_id": entry_id},
+        ) from exc
+    return schemas.ResearchQueueItem.from_domain(entry)
+
+
+@router.post("/evidence/similarity", response_model=schemas.SimilaritySearchResponse)
+def similarity_search(
+    request: schemas.SimilaritySearchRequest,
+    svc: ServiceRegistry = Depends(get_services),
+) -> schemas.SimilaritySearchResponse:
+    try:
+        results = svc.graph_service.similarity_search(
+            node_id=request.node_id,
+            vector=request.vector,
+            top_k=request.top_k,
+        )
+    except KeyError as exc:
+        missing = request.node_id or "unknown"
+        raise _http_error(
+            status.HTTP_404_NOT_FOUND,
+            "embedding_not_found",
+            f"No embedding available for node '{missing}'.",
+            context={"node_id": missing},
+        ) from exc
+    except ValueError as exc:
+        raise _http_error(
+            status.HTTP_400_BAD_REQUEST,
+            "similarity_invalid_request",
+            str(exc),
+        ) from exc
+    hits = [schemas.SimilarityHit.from_domain(result) for result in results]
+    query: Dict[str, Any] = {"top_k": request.top_k}
+    if request.node_id:
+        query["node_id"] = request.node_id
+    if request.vector is not None:
+        query["vector_length"] = len(request.vector)
+    return schemas.SimilaritySearchResponse(query=query, results=hits)
+
+
 def _atlas_overlay_handler(
     payload: schemas.AtlasOverlayRequest,
     svc: ServiceRegistry,
@@ -493,6 +586,12 @@ ASSISTANT_ACTIONS: Dict[schemas.AssistantAction, AssistantActionConfig] = {
         endpoint="/gaps",
         description="Highlight missing edges and counterfactuals between focus nodes.",
         handler=find_graph_gaps,
+    ),
+    schemas.AssistantAction.SIMILARITY_SEARCH: AssistantActionConfig(
+        request_model=schemas.SimilaritySearchRequest,
+        endpoint="/evidence/similarity",
+        description="Query the embedding space for nodes similar to the supplied seed.",
+        handler=similarity_search,
     ),
 }
 

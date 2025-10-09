@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Sequence
 
+import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -25,6 +27,9 @@ from backend.graph.persistence import (
     Neo4jGraphStore,
 )
 from backend.graph.service import GraphService
+
+os.environ.setdefault("GRAPH_AUTO_BOOTSTRAP", "0")
+
 from backend.main import app
 from backend.simulation.kg_adapter import GraphBackedReceptorAdapter
 

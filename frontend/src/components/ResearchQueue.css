@@ -1,0 +1,249 @@
+.research-queue {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1.5rem;
+  height: 100%;
+}
+
+.research-queue__sidebar {
+  border-right: 1px solid var(--border-subtle, #d9d9d9);
+  padding-right: 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.research-queue__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.research-queue__header h2 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.research-queue__header button {
+  border: 1px solid var(--border-default, #ccc);
+  background: var(--surface-muted, #f6f6f6);
+  border-radius: 4px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+}
+
+.research-queue__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.research-queue__list li {
+  margin-bottom: 0.25rem;
+}
+
+.research-queue__list li button {
+  width: 100%;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-start;
+  align-items: center;
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.research-queue__list li.is-selected button {
+  background: var(--surface-selected, #eef5ff);
+  border-color: var(--border-selected, #99c2ff);
+}
+
+.priority-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  font-weight: 600;
+  background: #f2f2f2;
+  color: #555;
+}
+
+.priority-1 {
+  background: #ffdfdf;
+  color: #a80000;
+}
+
+.priority-2 {
+  background: #ffe7cc;
+  color: #aa6100;
+}
+
+.priority-3 {
+  background: #fff4b3;
+  color: #715c00;
+}
+
+.priority-4 {
+  background: #e4f4ff;
+  color: #005c99;
+}
+
+.priority-5 {
+  background: #e7fbe7;
+  color: #1c6b1c;
+}
+
+.queue-subject {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.queue-status {
+  font-size: 0.85rem;
+  text-transform: capitalize;
+  color: #555;
+}
+
+.research-queue__details {
+  padding-right: 0.5rem;
+  overflow-y: auto;
+}
+
+.research-queue__details header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.research-queue__details header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.detail-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.detail-controls select {
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+}
+
+.metadata dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0 0 1rem;
+}
+
+.metadata dt {
+  font-weight: 600;
+  color: #555;
+}
+
+.metadata dd {
+  margin: 0;
+}
+
+.metadata__context pre {
+  background: #f8f8f8;
+  border-radius: 4px;
+  padding: 0.5rem;
+  overflow: auto;
+}
+
+.comments ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.comments li {
+  border-bottom: 1px solid #ececec;
+  padding: 0.5rem 0;
+}
+
+.comment-meta {
+  display: block;
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 0.25rem;
+}
+
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.comment-form textarea {
+  min-height: 80px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  padding: 0.5rem;
+}
+
+.comment-form button,
+.watcher-form button {
+  align-self: flex-start;
+  border-radius: 4px;
+  padding: 0.35rem 0.85rem;
+  border: 1px solid var(--border-default, #ccc);
+  background: var(--surface-muted, #f6f6f6);
+  cursor: pointer;
+}
+
+.watcher-form form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.watcher-form input {
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  padding: 0.35rem 0.5rem;
+}
+
+.history ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history li {
+  border: 1px solid #ececec;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  background: #fafafa;
+  display: grid;
+  grid-template-columns: 160px 180px 1fr;
+  gap: 0.5rem;
+}
+
+.research-queue__placeholder,
+.research-queue__loading,
+.research-queue__error,
+.research-queue__empty {
+  color: #666;
+  font-style: italic;
+  margin-top: 1rem;
+}
+
+.research-queue__error {
+  color: #b00020;
+  font-style: normal;
+}

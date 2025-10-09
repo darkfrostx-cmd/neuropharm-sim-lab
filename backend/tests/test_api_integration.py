@@ -1,5 +1,9 @@
+import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
+
+os.environ.setdefault("GRAPH_AUTO_BOOTSTRAP", "0")
 
 from backend.main import app
 
@@ -173,4 +177,52 @@ async def test_atlas_overlay_endpoint_returns_coordinates(monkeypatch, client):
     assert data["provider"] == "Allen Brain Atlas"
     assert data["coordinates"][0]["x_mm"] == 7.5
     assert data["volumes"][0]["format"] == "nrrd"
+
+
+async def test_research_queue_endpoints(serotonin_graph, client):
+    create_payload = {
+        "subject": "HGNC:HTR1A",
+        "object": "HGNC:BDNF",
+        "predicate": "biolink:positively_regulates",
+        "reason": "Needs chronic regimen replication",
+        "author": "tester@example.org",
+        "watchers": ["reviewer@example.org"],
+        "priority": 3,
+    }
+    create_response = await client.post("/research-queue", json=create_payload)
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["subject"] == "HGNC:HTR1A"
+    assert "watchers" in created and "reviewer@example.org" in created["watchers"]
+
+    list_response = await client.get("/research-queue")
+    assert list_response.status_code == 200
+    items = list_response.json()["items"]
+    assert any(item["id"] == created["id"] for item in items)
+
+    update_payload = {
+        "actor": "curator@example.org",
+        "status": "triaging",
+        "add_watchers": ["observer@example.org"],
+        "comment": "Replicating in chronic cohort",
+    }
+    update_response = await client.patch(f"/research-queue/{created['id']}", json=update_payload)
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["status"] == "triaging"
+    assert "observer@example.org" in updated["watchers"]
+    assert any(comment["body"].startswith("Replicating") for comment in updated["comments"])
+
+
+async def test_similarity_search_returns_hits(serotonin_graph, client):
+    await client.post("/gaps", json={"focus_nodes": ["HGNC:HTR1A", "HGNC:HTR2A"]})
+    response = await client.post(
+        "/evidence/similarity",
+        json={"node_id": "HGNC:HTR1A", "top_k": 3},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["query"]["node_id"] == "HGNC:HTR1A"
+    assert data["results"]
+    assert all("node" in hit for hit in data["results"])
 from backend.atlas import AtlasCoordinate, AtlasOverlay, AtlasVolume
