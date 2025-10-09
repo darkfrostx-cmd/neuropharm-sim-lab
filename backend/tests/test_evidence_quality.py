@@ -1,4 +1,9 @@
 from backend.graph.evidence_quality import EvidenceQualityScorer
+from backend.graph.evidence_classifier import (
+    EvidenceQualityClassifier,
+    build_training_examples,
+)
+from backend.graph.evidence_quality import EvidenceQualityScorer
 from backend.graph.models import BiolinkPredicate, Edge, Evidence
 
 
@@ -43,3 +48,22 @@ def test_provenance_weighting_prefers_referenced_studies():
     edge = _make_edge(with_reference)
     summary = scorer.summarise_edge(edge)
     assert summary.score is not None and summary.score >= with_score * 0.9
+
+
+def test_classifier_attaches_probability_signal():
+    base_scorer = EvidenceQualityScorer()
+    good_ev = Evidence(source="ChEMBL", reference="PMID:1", annotations={"species": "human", "design": "clinical"})
+    bad_ev = Evidence(source="PDSP", annotations={"species": "mouse", "design": "in vitro"})
+    good_features = base_scorer._features_from_breakdowns([base_scorer.score_evidence(good_ev)])
+    bad_features = base_scorer._features_from_breakdowns([base_scorer.score_evidence(bad_ev)])
+    classifier = EvidenceQualityClassifier(epochs=200, learning_rate=0.25)
+    samples = build_training_examples([good_features, bad_features], labels=[1, 0])
+    classifier.fit(samples)
+    scorer = EvidenceQualityScorer(classifier=classifier)
+    good_summary = scorer.summarise_edge(_make_edge(good_ev))
+    bad_summary = scorer.summarise_edge(_make_edge(bad_ev))
+    assert good_summary.classifier_probability is not None
+    assert bad_summary.classifier_probability is not None
+    assert good_summary.classifier_probability > bad_summary.classifier_probability
+    assert good_summary.classifier_label == "high"
+    assert bad_summary.classifier_label == "low"

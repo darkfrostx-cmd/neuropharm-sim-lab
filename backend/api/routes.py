@@ -465,6 +465,9 @@ def create_research_queue_entry(
         priority=request.priority,
         watchers=request.watchers,
         metadata=request.metadata,
+        assigned_to=request.assigned_to,
+        due_date=request.due_date,
+        checklist=request.checklist,
     )
     return schemas.ResearchQueueItem.from_domain(entry)
 
@@ -485,6 +488,9 @@ def update_research_queue_entry(
             remove_watchers=request.remove_watchers,
             comment=request.comment,
             metadata=request.metadata or None,
+            assigned_to=request.assigned_to,
+            due_date=request.due_date,
+            checklist=request.checklist,
         )
     except KeyError:
         raise _http_error(
@@ -501,6 +507,13 @@ def update_research_queue_entry(
             context={"entry_id": entry_id},
         ) from exc
     return schemas.ResearchQueueItem.from_domain(entry)
+
+
+@router.get("/governance/sources", response_model=schemas.GovernanceSourceList)
+def list_governance_sources(svc: ServiceRegistry = Depends(get_services)) -> schemas.GovernanceSourceList:
+    records = svc.graph_service.list_governance_sources()
+    items = [schemas.GovernanceSource.from_domain(record) for record in records]
+    return schemas.GovernanceSourceList(items=items)
 
 
 @router.post("/evidence/similarity", response_model=schemas.SimilaritySearchResponse)

@@ -9,6 +9,7 @@ try:  # pragma: no cover - optional dependency for live fetches
 except ImportError:  # pragma: no cover
     requests = None  # type: ignore
 
+from ..atlas.assets import load_hcp_reference, load_julich_reference
 from .ingest_base import BaseIngestionJob
 from .models import BiolinkEntity, BiolinkPredicate, Edge, Node
 
@@ -142,9 +143,111 @@ class EBrainsAtlasIngestion(BaseIngestionJob):
         return [node], edges
 
 
+class HCPAtlasIngestion(BaseIngestionJob):
+    name = "hcp_atlas"
+    source = "Human Connectome Project"
+
+    def __init__(self, reference: dict | None = None) -> None:
+        self._reference = reference or load_hcp_reference()
+
+    def fetch(self, limit: int | None = None) -> Iterable[dict]:
+        regions = list(self._reference.get("regions", []))
+        if limit is not None:
+            return regions[: limit or 0]
+        return regions
+
+    def transform(self, record: dict) -> tuple[list[Node], list[Edge]]:
+        node = Node(
+            id=record.get("id", "HCPRegion"),
+            name=record.get("name", "HCP region"),
+            category=BiolinkEntity.BRAIN_REGION,
+            provided_by=self.source,
+            attributes={
+                "space": record.get("space"),
+                "coordinates": record.get("coordinates", []),
+                "volumes": record.get("volumes", []),
+                "surfaces": record.get("surfaces", []),
+            },
+        )
+        edges: list[Edge] = []
+        for volume in record.get("volumes", []):
+            evidence = self.make_evidence(self.source, volume.get("url"), None, type=volume.get("format"))
+            edges.append(
+                Edge(
+                    subject=node.id,
+                    predicate=BiolinkPredicate.HAS_PART,
+                    object=volume.get("name", "HCP volume"),
+                    evidence=[evidence],
+                )
+            )
+        space = record.get("space")
+        if space:
+            edges.append(
+                Edge(
+                    subject=node.id,
+                    predicate=BiolinkPredicate.LOCATED_IN,
+                    object=str(space),
+                    evidence=[self.make_evidence(self.source, None, None, type="space")],
+                )
+            )
+        return [node], edges
+
+
+class JulichAtlasIngestion(BaseIngestionJob):
+    name = "julich_atlas"
+    source = "Julich-Brain"
+
+    def __init__(self, reference: dict | None = None) -> None:
+        self._reference = reference or load_julich_reference()
+
+    def fetch(self, limit: int | None = None) -> Iterable[dict]:
+        regions = list(self._reference.get("regions", []))
+        if limit is not None:
+            return regions[: limit or 0]
+        return regions
+
+    def transform(self, record: dict) -> tuple[list[Node], list[Edge]]:
+        node = Node(
+            id=record.get("id", "JulichRegion"),
+            name=record.get("name", "Julich region"),
+            category=BiolinkEntity.BRAIN_REGION,
+            provided_by=self.source,
+            attributes={
+                "space": record.get("space"),
+                "coordinates": record.get("coordinates", []),
+                "volumes": record.get("volumes", []),
+                "surfaces": record.get("surfaces", []),
+            },
+        )
+        edges: list[Edge] = []
+        for surface in record.get("surfaces", []):
+            evidence = self.make_evidence(self.source, surface.get("url"), None, type=surface.get("format"))
+            edges.append(
+                Edge(
+                    subject=node.id,
+                    predicate=BiolinkPredicate.HAS_PART,
+                    object=surface.get("name", "Julich surface"),
+                    evidence=[evidence],
+                )
+            )
+        space = record.get("space")
+        if space:
+            edges.append(
+                Edge(
+                    subject=node.id,
+                    predicate=BiolinkPredicate.LOCATED_IN,
+                    object=str(space),
+                    evidence=[self.make_evidence(self.source, None, None, type="space")],
+                )
+            )
+        return [node], edges
+
+
 __all__ = [
     "AllenAtlasClient",
     "EBrainsAtlasClient",
     "AllenAtlasIngestion",
     "EBrainsAtlasIngestion",
+    "HCPAtlasIngestion",
+    "JulichAtlasIngestion",
 ]

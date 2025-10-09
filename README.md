@@ -222,7 +222,7 @@ You can enable the richer NLP stack by installing scispaCy and the associated
 models:
 
 ```bash
-pip install scispacy
+pip install "spacy>=3.7.4,<3.8.0" "scispacy>=0.5.4"
 python -m spacy download en_core_sci_sm
 ```
 

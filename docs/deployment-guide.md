@@ -7,6 +7,7 @@ This guide walks through three hosting options for the FastAPI backend so your C
 1. Fork or clone the repository.
 2. Install Python 3.10 or newer plus Git on your local machine.
 3. Copy the environment variables you plan to use (for example: `GRAPH_URI`, `GRAPH_USERNAME`, `GRAPH_PASSWORD`, `VECTOR_DB_URL`). Keep them handy—you will paste them into each platform’s settings.
+4. Install optional bundles as needed. The text-mining upgrade (spaCy 3.7/scispaCy 0.5.4) ships behind the extras interface, so run `pip install -e backend[text-mining]` on hosts that execute ingestion or evidence scoring workflows.【F:backend/pyproject.toml†L30-L45】
 
 ### Install the mechanistic solver bundle locally
 

@@ -290,8 +290,12 @@ class GraphBackedReceptorAdapter:
     ) -> None:
         predicate = edge.predicate
         quality_score = quality_summary.score
+        classifier_boost = quality_summary.classifier_probability
+        quality_multiplier = 1.0
+        if classifier_boost is not None:
+            quality_multiplier = float(max(0.3, min(1.2, 0.6 + 0.6 * classifier_boost)))
         for breakdown in quality_summary.breakdowns:
-            score = breakdown.total_score
+            score = breakdown.total_score * quality_multiplier
             evidence_values.append(float(score))
             if predicate == BiolinkPredicate.INTERACTS_WITH:
                 affinity_values.append(float(score))
@@ -304,6 +308,7 @@ class GraphBackedReceptorAdapter:
                 weighted_value = value
                 if quality_score is not None:
                     weighted_value = value * float(max(0.1, min(1.0, quality_score)))
+                weighted_value *= quality_multiplier
                 if predicate == BiolinkPredicate.INTERACTS_WITH:
                     affinity_values.append(weighted_value)
                 elif predicate in {BiolinkPredicate.EXPRESSES, BiolinkPredicate.COEXPRESSION_WITH}:
@@ -318,6 +323,7 @@ class GraphBackedReceptorAdapter:
                     weighted_value = value
                     if quality_score is not None:
                         weighted_value = value * float(max(0.1, min(1.0, quality_score)))
+                    weighted_value *= quality_multiplier
                     expression_values.append(weighted_value)
 
         for ev in edge.evidence:

@@ -16,8 +16,11 @@ from ..graph.evidence_quality import (
     EvidenceQualityBreakdown,
     EvidenceQualityScorer,
 )
+from ..graph.gap_state import ChecklistItem as DomainChecklistItem
 from ..graph.gap_state import ResearchQueueEntry as DomainResearchQueueEntry
 from ..graph.gap_state import TriageComment as DomainTriageComment
+from ..graph.governance import GovernanceCheck as DomainGovernanceCheck
+from ..graph.governance import DataSourceRecord as DomainDataSourceRecord
 from ..graph.models import BiolinkPredicate, Edge, Evidence, Node
 from ..reasoning import CausalSummary, CounterfactualScenario
 
@@ -101,6 +104,9 @@ class EdgeQualityMetrics(BaseModel):
     design_distribution: Dict[str, int] = Field(default_factory=dict)
     has_human_data: bool = False
     has_animal_data: bool = False
+    model_label: str | None = None
+    model_probability: float | None = Field(default=None, ge=0.0, le=1.0)
+    model_features: Dict[str, float] = Field(default_factory=dict)
 
     @classmethod
     def from_summary(cls, summary: EdgeQualitySummary) -> "EdgeQualityMetrics":
@@ -111,6 +117,9 @@ class EdgeQualityMetrics(BaseModel):
             design_distribution=dict(summary.design_distribution),
             has_human_data=summary.has_human_data,
             has_animal_data=summary.has_animal_data,
+            model_label=summary.classifier_label,
+            model_probability=summary.classifier_probability,
+            model_features=dict(summary.classifier_features),
         )
 
 
@@ -410,6 +419,18 @@ class SimulationAssumptions(BaseModel):
         default=False,
         description="Enable α2C cortico-striatal gate dampening stress arousal",
     )
+    bla_cholinergic_salience: bool = Field(
+        default=False,
+        description="Introduce basolateral amygdala cholinergic salience burst",
+    )
+    oxytocin_prosocial: bool = Field(
+        default=False,
+        description="Amplify oxytocinergic social-processing pathways",
+    )
+    vasopressin_gating: bool = Field(
+        default=False,
+        description="Activate vasopressin-mediated threat gating loops",
+    )
 
     class Config:
         extra = "forbid"
@@ -544,6 +565,9 @@ class ResearchQueueItem(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
     comments: Sequence[ResearchQueueComment] = Field(default_factory=list)
     history: Sequence[Dict[str, Any]] = Field(default_factory=list)
+    assigned_to: str | None = None
+    due_date: datetime | None = None
+    checklist: Sequence["ResearchQueueChecklistItem"] = Field(default_factory=list)
 
     @classmethod
     def from_domain(cls, entry: DomainResearchQueueEntry) -> "ResearchQueueItem":
@@ -560,6 +584,9 @@ class ResearchQueueItem(BaseModel):
             metadata=dict(entry.metadata),
             comments=[ResearchQueueComment.from_domain(comment) for comment in entry.comments],
             history=[dict(event) for event in entry.history],
+            assigned_to=entry.assigned_to,
+            due_date=entry.due_date,
+            checklist=[ResearchQueueChecklistItem.from_domain(item) for item in entry.checklist],
         )
 
 
@@ -576,6 +603,9 @@ class ResearchQueueCreateRequest(BaseModel):
     priority: int = Field(default=2, ge=1, le=5)
     watchers: Sequence[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    assigned_to: str | None = Field(default=None)
+    due_date: datetime | None = Field(default=None)
+    checklist: Sequence[Dict[str, Any]] = Field(default_factory=list)
 
 
 class ResearchQueueUpdateRequest(BaseModel):
@@ -586,6 +616,57 @@ class ResearchQueueUpdateRequest(BaseModel):
     remove_watchers: Sequence[str] = Field(default_factory=list)
     comment: str | None = Field(default=None)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    assigned_to: str | None = Field(default=None)
+    due_date: datetime | None = Field(default=None)
+    checklist: Sequence[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ResearchQueueChecklistItem(BaseModel):
+    description: str
+    completed: bool = False
+    owner: str | None = None
+
+    @classmethod
+    def from_domain(cls, item: DomainChecklistItem) -> "ResearchQueueChecklistItem":
+        return cls(description=item.description, completed=item.completed, owner=item.owner)
+
+
+class GovernanceCheckPayload(BaseModel):
+    name: str
+    passed: bool
+    note: str | None = None
+
+    @classmethod
+    def from_domain(cls, check: DomainGovernanceCheck) -> "GovernanceCheckPayload":
+        return cls(name=check.name, passed=check.passed, note=check.note)
+
+
+class GovernanceSource(BaseModel):
+    name: str
+    category: str
+    pii: bool
+    retention: str
+    access_tier: str
+    last_audited: datetime
+    checks: Sequence[GovernanceCheckPayload] = Field(default_factory=list)
+    issues: Sequence[str] = Field(default_factory=list)
+
+    @classmethod
+    def from_domain(cls, record: DomainDataSourceRecord) -> "GovernanceSource":
+        return cls(
+            name=record.name,
+            category=record.category,
+            pii=record.pii,
+            retention=record.retention,
+            access_tier=record.access_tier,
+            last_audited=record.last_audited,
+            checks=[GovernanceCheckPayload.from_domain(check) for check in record.checks],
+            issues=list(record.issues),
+        )
+
+
+class GovernanceSourceList(BaseModel):
+    items: Sequence[GovernanceSource]
 
 
 class SimilaritySearchRequest(BaseModel):
@@ -690,6 +771,10 @@ __all__ = [
     "ResearchQueueListResponse",
     "ResearchQueueCreateRequest",
     "ResearchQueueUpdateRequest",
+    "ResearchQueueChecklistItem",
+    "GovernanceCheckPayload",
+    "GovernanceSource",
+    "GovernanceSourceList",
     "SimilaritySearchRequest",
     "SimilarityHit",
     "SimilaritySearchResponse",
