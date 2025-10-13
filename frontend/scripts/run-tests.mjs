@@ -22,7 +22,8 @@ const runE2E = process.env.SKIP_E2E !== '1'
 const shouldInstallBrowsers = runE2E && process.env.PLAYWRIGHT_SKIP_BROWSER_INSTALL !== '1'
 
 try {
-  await run('npx', ['vitest', 'run', ...cleanedArgs])
+  const vitestPool = process.env.VITEST_POOL ? ['--pool', process.env.VITEST_POOL] : []
+  await run('npx', ['vitest', 'run', ...vitestPool, ...cleanedArgs])
 
   if (runE2E) {
     if (shouldInstallBrowsers) {
